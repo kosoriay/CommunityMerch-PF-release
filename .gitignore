@@ -1,0 +1,88 @@
+# Environment variables
+# .env contains safe shared defaults and can be committed
+# .env.local contains sensitive credentials and must be excluded
+.env.local
+.env.*.local
+!.env.sample
+!.env.local.sample
+.env.production
+.env.development
+.env.test
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Next.js
+.next/
+out/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# iCloud Drive sync conflict duplicates (auto-generated "* 2.*" files)
+* 2.*
+
+# Local SQLite databases (test artifacts)
+*.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Security and credentials
+secrets/
+credentials.json
+config/credentials.json
+*.key
+*.pem
+*.p12
+*.pfx
+
+# API keys and tokens
+*api-key*
+*secret*
+*token*
+!src/app/invite/
+!src/app/invite/*token*/
+!src/app/invite/*token*/**
+auth.json
+
+# MCP server logs
+mcp.log
+*.mcp.log
+
+# Playwright MCP plugin
+.playwright-mcp/
+
+# Project-specific SSH keys (Deploy Keys)
+.ssh/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Uploaded files (dev only — use R2 in production, Plan 4)
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Test results (screenshots, logs from verification runs)
+# All verification screenshots go in tests/results/ subdirectories
+tests/results/**
+!tests/results/.gitkeep
+
+# Superpowers / Claude Code plugin state
+.superpowers/
+
+# Vercel CLI local cache
+.vercel/

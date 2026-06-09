@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build",
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/mockup-cleanup",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
