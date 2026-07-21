@@ -68,5 +68,5 @@ export async function savePricingAction(
     : "percent_only" as const
 
   await savePricingStep(campaignId, productList, goalAmount, deadline, amountDisplayMode)
-  redirect(`/dashboard/orgs/${orgId}/campaigns/${campaignId}/connect-bank`)
+  redirect(`/dashboard/orgs/${orgId}/campaigns/${campaignId}/publish`)
 }

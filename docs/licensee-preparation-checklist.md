@@ -510,10 +510,12 @@ CRON_SECRET=ここに入力（ランダム文字列）
    - わからない場合はプラットフォーム提供者にご連絡ください
 
 2. **Vercel にデプロイする**
-   - README の「Deploy to Vercel」ボタンをクリック
-   - GitHub アカウントと連携
-   - 環境変数（Section 3）を入力
+   - リポジトリページ右上の **「Fork」** をクリックして、自分のアカウントに複製を作る
+     - ⚠️ Fork せずにコピーしてデプロイすると、将来のアップデートを受け取れなくなります
+   - [vercel.com/new](https://vercel.com/new) を開き、GitHub 連携して Fork したリポジトリを「Import」
+   - 環境変数（Section 3 のテンプレートに値を埋めたもの）を Environment Variables 欄に**まとめて貼り付け**
    - 「Deploy」をクリック → 数分で完了
+   - 以後のアップデートは、Fork のページで「Sync fork」→「Update branch」を押すだけで自動反映されます
 
 3. **独自ドメインを設定する（任意）**
    - Vercel Dashboard → Domains → ドメインを追加

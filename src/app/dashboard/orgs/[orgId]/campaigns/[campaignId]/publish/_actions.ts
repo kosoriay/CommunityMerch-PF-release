@@ -36,7 +36,7 @@ export async function publishCampaignAction(
     where: eq(organizations.id, orgId),
   })
   if (!org?.stripeOnboardingComplete) {
-    redirect(`/dashboard/orgs/${orgId}/campaigns/${campaignId}/connect-bank`)
+    redirect(`/dashboard/orgs/${orgId}/settings/payouts`)
   }
 
   const result = await publishCampaign(campaignId)

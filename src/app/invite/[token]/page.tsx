@@ -38,7 +38,7 @@ export default async function InvitePage({ params }: Props) {
         <CardHeader>
           <CardTitle>Join {invitation.org.name}</CardTitle>
           <CardDescription>
-            You've been invited to join as a{" "}
+            You&apos;ve been invited to join as a{" "}
             <strong className="capitalize">{invitation.role}</strong>.
           </CardDescription>
         </CardHeader>

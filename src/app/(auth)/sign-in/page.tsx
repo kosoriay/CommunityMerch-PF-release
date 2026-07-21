@@ -17,6 +17,7 @@ function safeCallbackUrl(raw: string | null): string {
 function SignInContent() {
   const searchParams = useSearchParams()
   const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"))
+  const fromPreview = callbackUrl.startsWith("/onboarding")
 
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
@@ -93,6 +94,11 @@ function SignInContent() {
                 required
               />
             </div>
+            {fromPreview && (
+              <p className="text-xs text-muted-foreground">
+                Tip: open the emailed link in <strong>this same browser</strong> to keep the campaign you just built.
+              </p>
+            )}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Sending..." : "Send sign-in link"}
             </Button>

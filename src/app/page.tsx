@@ -48,7 +48,7 @@ export default async function LandingPage() {
       </div>
 
       <Link
-        href="/sign-in"
+        href="/start"
         className="bg-[#2E4057] text-white px-6 py-3 rounded-lg font-medium hover:bg-[#1e2d3d] transition-colors"
       >
         Get Started — Free

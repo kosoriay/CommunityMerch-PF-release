@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest"
 // Mock the DB client so the module can load without real env vars
 vi.mock("@/lib/db/client", () => ({ db: {} }))
 
-import { generateSlug } from "./orgs"
+import { generateSlug, validateOrgName } from "./orgs"
 
 describe("generateSlug", () => {
   it("lowercases and replaces spaces with hyphens", () => {
@@ -25,5 +25,27 @@ describe("generateSlug", () => {
 
   it("handles empty string", () => {
     expect(generateSlug("")).toBe("")
+  })
+})
+
+describe("validateOrgName", () => {
+  it("should trim and accept a valid name", () => {
+    expect(validateOrgName("  Lincoln PTA  ")).toEqual({ value: "Lincoln PTA" })
+  })
+
+  it("should reject a name shorter than 2 characters", () => {
+    expect(validateOrgName("A")).toEqual({ error: "Name must be at least 2 characters." })
+  })
+
+  it("should reject a name longer than 80 characters", () => {
+    expect(validateOrgName("A".repeat(81))).toEqual({
+      error: "Name must be 80 characters or fewer.",
+    })
+  })
+
+  it("should reject a name with no letters or numbers", () => {
+    expect(validateOrgName("!!! ---")).toEqual({
+      error: "Name must contain at least one letter or number.",
+    })
   })
 })
