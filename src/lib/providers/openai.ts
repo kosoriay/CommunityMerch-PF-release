@@ -49,7 +49,6 @@ export async function generateDesignImage(prompt: string): Promise<Buffer> {
     prompt: enhancedPrompt,
     n: 1,
     size: "1024x1024",
-    // @ts-ignore — background:transparent supported by gpt-image-1 but not typed in older SDK versions
     background: "transparent",
     output_format: "png",
   } as Parameters<typeof client.images.generate>[0]) as ImagesResponse

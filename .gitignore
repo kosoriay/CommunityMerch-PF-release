@@ -2,6 +2,7 @@
 # .env contains safe shared defaults and can be committed
 # .env.local contains sensitive credentials and must be excluded
 .env.local
+.env.local.*
 .env.*.local
 !.env.sample
 !.env.local.sample
@@ -86,3 +87,6 @@ tests/results/**
 
 # Vercel CLI local cache
 .vercel/
+
+# Local QA tooling (ad-hoc payout/Stripe test helpers — not part of the feature)
+scripts/qa-db.mjs

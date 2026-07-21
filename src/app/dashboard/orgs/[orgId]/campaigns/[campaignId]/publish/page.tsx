@@ -56,7 +56,7 @@ export default async function PublishPage({ params, searchParams }: Props) {
     <div className="max-w-2xl">
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-          <span>Step 4 of 4</span>
+          <span>Step 3 of 3</span>
           <span>·</span>
           <span className="font-medium text-foreground">Publish</span>
         </div>
@@ -181,12 +181,14 @@ export default async function PublishPage({ params, searchParams }: Props) {
                 Only admins can publish campaigns.
               </p>
             )}
-            <Link
-              href={`/dashboard/orgs/${orgId}/campaigns/${campaignId}/connect-bank`}
-              className={buttonVariants({ variant: "outline" })}
-            >
-              ← Back to Bank Account
-            </Link>
+            {isAdmin && (
+              <Link
+                href={`/dashboard/orgs/${orgId}/settings/payouts`}
+                className={buttonVariants({ variant: "outline" })}
+              >
+                Payout Settings
+              </Link>
+            )}
           </div>
         )}
       </div>

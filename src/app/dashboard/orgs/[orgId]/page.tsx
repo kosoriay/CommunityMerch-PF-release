@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import { auth } from "@/lib/auth"
 import { requireOrgAccess } from "@/lib/middleware/require-org-access"
 import { getOrg, getOrgMembers } from "@/lib/orgs"
+import { getPayoutStatus, PAYOUT_STATUS_LABEL, PAYOUT_STATUS_TEXT_CLASS } from "@/lib/payouts"
 import { buttonVariants } from "@/components/ui/button"
 import Link from "next/link"
 
@@ -24,6 +25,7 @@ export default async function OrgPage({ params }: Props) {
   if (!org) notFound()
 
   const isAdmin = membership.role === "admin"
+  const payoutStatus = getPayoutStatus(org)
 
   return (
     <div className="space-y-6">
@@ -33,13 +35,21 @@ export default async function OrgPage({ params }: Props) {
           <p className="text-muted-foreground text-sm">/{org.slug}</p>
         </div>
         {isAdmin && (
-          <Link href={`/dashboard/orgs/${orgId}/members`} className={buttonVariants()}>
-            Manage Members
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href={`/dashboard/orgs/${orgId}/settings`}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              Settings
+            </Link>
+            <Link href={`/dashboard/orgs/${orgId}/members`} className={buttonVariants()}>
+              Manage Members
+            </Link>
+          </div>
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border bg-white p-4">
           <p className="text-sm text-muted-foreground">Members</p>
           <p className="text-3xl font-semibold mt-1">{members.length}</p>
@@ -47,6 +57,20 @@ export default async function OrgPage({ params }: Props) {
         <div className="rounded-lg border bg-white p-4">
           <p className="text-sm text-muted-foreground">Your role</p>
           <p className="text-3xl font-semibold mt-1 capitalize">{membership.role}</p>
+        </div>
+        <div className="rounded-lg border bg-white p-4">
+          <p className="text-sm text-muted-foreground">Payouts</p>
+          <p className={`text-lg font-semibold mt-1 ${PAYOUT_STATUS_TEXT_CLASS[payoutStatus]}`}>
+            {PAYOUT_STATUS_LABEL[payoutStatus]}
+          </p>
+          {isAdmin && (
+            <Link
+              href={`/dashboard/orgs/${orgId}/settings/payouts`}
+              className="text-sm text-primary underline-offset-4 hover:underline mt-1 inline-block"
+            >
+              Manage payouts
+            </Link>
+          )}
         </div>
       </div>
 

@@ -22,7 +22,7 @@ export default async function DashboardPage() {
 
       {orgs.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
-          <p className="mb-4 text-lg">You're not a member of any organization yet.</p>
+          <p className="mb-4 text-lg">You&apos;re not a member of any organization yet.</p>
           <Link href="/dashboard/orgs/new" className={buttonVariants()}>
             Create your first organization
           </Link>

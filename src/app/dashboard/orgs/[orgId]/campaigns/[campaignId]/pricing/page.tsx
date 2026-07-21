@@ -47,7 +47,7 @@ export default async function PricingPage({ params }: Props) {
     <div className="max-w-2xl">
       <div className="mb-6">
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-          <span>Step 2 of 4</span>
+          <span>Step 2 of 3</span>
           <span>·</span>
           <span className="font-medium text-foreground">Products & Pricing</span>
         </div>

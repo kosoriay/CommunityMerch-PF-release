@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useSyncExternalStore } from 'react'
 import { MessageCircle, Mic, MicOff, Send, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { submitFeedback } from '@/lib/feedback'
@@ -30,19 +30,23 @@ interface ISpeechRecognitionEvent {
 
 type Status = 'idle' | 'sending' | 'sent' | 'error'
 
+// SpeechRecognition availability is fixed for the page's lifetime; a no-op subscribe is sufficient.
+const subscribeSpeechSupport = () => () => {}
+const getSpeechSupported = () =>
+  !!(window.SpeechRecognition ?? window.webkitSpeechRecognition)
+
 export function FeedbackWidget() {
   const [isOpen, setIsOpen] = useState(false)
   const [content, setContent] = useState('')
   const [isRecording, setIsRecording] = useState(false)
-  const [isSpeechSupported, setIsSpeechSupported] = useState(false)
+  const isSpeechSupported = useSyncExternalStore(
+    subscribeSpeechSupport,
+    getSpeechSupported,
+    () => false,
+  )
   const [status, setStatus] = useState<Status>('idle')
   const [lastInputType, setLastInputType] = useState<'text' | 'voice'>('text')
   const recognitionRef = useRef<ISpeechRecognition | null>(null)
-
-  useEffect(() => {
-    const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition
-    setIsSpeechSupported(!!SR)
-  }, [])
 
   const startRecording = () => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition
