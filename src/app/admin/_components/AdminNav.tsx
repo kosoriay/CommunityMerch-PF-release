@@ -31,6 +31,7 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
     { href: '/admin/orgs', label: 'Organizations' },
     ...(isAdmin
       ? [
+          { href: '/admin/landing', label: 'Landing Page' },
           { href: '/admin/discount-codes', label: 'Discount Codes' },
           { href: '/admin/staff', label: 'Staff' },
         ]
