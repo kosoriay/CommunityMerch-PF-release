@@ -1,6 +1,7 @@
 "use client"
 
 import { Suspense, useState } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { authClient } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
@@ -104,6 +105,12 @@ function SignInContent() {
             </Button>
           </form>
         )}
+        <p className="text-xs text-center text-muted-foreground">
+          By continuing, you agree to our{" "}
+          <Link href="/terms" className="underline hover:text-foreground">Terms of Service</Link>
+          {" "}and{" "}
+          <Link href="/privacy" className="underline hover:text-foreground">Privacy Policy</Link>.
+        </p>
       </CardContent>
     </Card>
   )

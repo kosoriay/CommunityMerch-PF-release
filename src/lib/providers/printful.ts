@@ -60,7 +60,7 @@ export async function submitPrintfulOrder(
 ): Promise<PrintfulOrderResult> {
   const body = {
     external_id: orderId,
-    shipping: "PRINTFUL_FAST",
+    shipping: "STANDARD",
     recipient,
     items,
   }

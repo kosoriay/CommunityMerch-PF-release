@@ -248,7 +248,13 @@ export function CampaignCart({ campaignId, orgId, products, catalog }: Props) {
             {loading ? "Redirecting to payment..." : "Checkout — Pay Securely"}
           </Button>
           <p className="text-xs text-center text-muted-foreground">
-            Powered by Stripe · Secure checkout
+            Powered by Stripe · Secure checkout · Shipping calculated at checkout
+          </p>
+          <p className="text-xs text-center text-muted-foreground">
+            By purchasing you agree to the{" "}
+            <a href="/terms" target="_blank" rel="noopener" className="underline hover:text-foreground">
+              Terms of Service
+            </a>.
           </p>
         </div>
       )}

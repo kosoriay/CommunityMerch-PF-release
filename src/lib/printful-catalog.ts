@@ -340,6 +340,70 @@ export function itemsNeededForGoal(goalCents: number, profitPerItemCents: number
   return Math.ceil(goalCents / profitPerItemCents)
 }
 
+// US standard shipping, charged to the buyer at checkout. Printful bills the
+// platform owner product cost + shipping per order, so checkout collects
+// shipping from the buyer and recovers it via the Stripe application fee.
+// Rates approximate Printful's published US standard rates (verified 2026-07);
+// the POD buffer absorbs drift. Review https://www.printful.com/shipping
+// whenever the catalog changes.
+export const SHIPPING_RATES: Record<string, { firstCents: number; additionalCents: number }> = {
+  "bc-3001-tee":            { firstCents: 469, additionalCents: 220 },
+  "bc-3001y-tee":           { firstCents: 469, additionalCents: 220 },
+  "bc-3501-ls":             { firstCents: 469, additionalCents: 220 },
+  "bc-3413-triblend":       { firstCents: 469, additionalCents: 220 },
+  "gildan-5000-classic":    { firstCents: 469, additionalCents: 220 },
+  "gildan-64000-softstyle": { firstCents: 469, additionalCents: 220 },
+  "gildan-18000-crewneck":  { firstCents: 749, additionalCents: 260 },
+  "gildan-18500-hoodie":    { firstCents: 749, additionalCents: 260 },
+  "ch-m2580-hoodie":        { firstCents: 749, additionalCents: 260 },
+  "cc-1717-garment-dyed":   { firstCents: 469, additionalCents: 220 },
+  "yupoong-6245cm-dad-hat": { firstCents: 419, additionalCents: 209 },
+  "yupoong-6606-trucker":   { firstCents: 419, additionalCents: 209 },
+  "yupoong-6089m-snapback": { firstCents: 419, additionalCents: 209 },
+  "yupoong-1501kc-beanie":  { firstCents: 419, additionalCents: 209 },
+  "white-glossy-mug":       { firstCents: 799, additionalCents: 449 },
+  "atc-bg150-tote":         { firstCents: 469, additionalCents: 220 },
+  "econscious-ec8000-tote": { firstCents: 469, additionalCents: 220 },
+}
+
+// Fallback for catalog items added without a rate entry — errs high on purpose.
+export const DEFAULT_SHIPPING_RATE = { firstCents: 799, additionalCents: 300 }
+
+// One order ships as one package: the highest first-item rate applies once,
+// every remaining unit adds its own additional-item rate.
+export function estimateShippingCents(
+  items: { printfulVariantId: string; quantity: number }[]
+): number {
+  if (items.length === 0) return 0
+  let best: { firstCents: number; additionalCents: number } | null = null
+  let additionalTotalCents = 0
+  for (const item of items) {
+    const rate = SHIPPING_RATES[item.printfulVariantId] ?? DEFAULT_SHIPPING_RATE
+    additionalTotalCents += rate.additionalCents * item.quantity
+    if (!best || rate.firstCents > best.firstCents) best = rate
+  }
+  if (!best) return 0
+  return best.firstCents + additionalTotalCents - best.additionalCents
+}
+
+// The platform owner pays Printful (POD + shipping) and Stripe processing out
+// of pocket, so the application fee must recover those costs on top of the
+// platform fee itself. The org then receives: item subtotal − POD(+buffer)
+// − platform fee − Stripe estimate, matching calculateMargin's display.
+export function calculateCheckoutApplicationFee(params: {
+  itemSubtotalCents: number
+  podCostCents: number
+  shippingCents: number
+  feeRate?: number
+}): number {
+  const { itemSubtotalCents, podCostCents, shippingCents, feeRate = PLATFORM_FEE_RATE } = params
+  const podWithBufferCents = Math.round(podCostCents * (1 + POD_BUFFER_RATE))
+  const platformFeeCents = Math.round(itemSubtotalCents * feeRate)
+  const stripeFeesCents =
+    Math.round((itemSubtotalCents + shippingCents) * STRIPE_RATE) + STRIPE_FIXED_CENTS
+  return podWithBufferCents + shippingCents + platformFeeCents + stripeFeesCents
+}
+
 // Verified Printful catalog product IDs (from GET https://api.printful.com/products)
 // Color default = "White". Variant ID per size resolved at order time via GET /products/{id}/variants.
 // Note: ATC BG150 is not in Printful's catalog — AS Colour 1001 Cotton Tote Bag (ID 641) is used instead.

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { stripe, calculateApplicationFee } from "@/lib/providers/stripe"
+import { stripe } from "@/lib/providers/stripe"
+import { estimateShippingCents, calculateCheckoutApplicationFee } from "@/lib/printful-catalog"
 import { createPendingOrder, type CartItem } from "@/lib/orders"
 import { getCampaign } from "@/lib/campaigns"
 import { db } from "@/lib/db/client"
@@ -68,7 +69,34 @@ export async function POST(request: NextRequest) {
 
   const appUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000"
   const totalCents = items.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0)
-  const applicationFeeCents = calculateApplicationFee(totalCents, feeRate)
+
+  // Buyer pays shipping; the application fee recovers POD + shipping + Stripe
+  // costs, which are all billed to the platform owner.
+  const podCostCents = items.reduce(
+    (sum, i) => sum + productMap.get(i.campaignProductId)!.podCost * i.quantity,
+    0
+  )
+  const shippingCents = estimateShippingCents(
+    items.map((i) => ({
+      printfulVariantId: productMap.get(i.campaignProductId)!.printfulVariantId,
+      quantity: i.quantity,
+    }))
+  )
+  const applicationFeeCents = calculateCheckoutApplicationFee({
+    itemSubtotalCents: totalCents,
+    podCostCents,
+    shippingCents,
+    feeRate,
+  })
+
+  // Retail prices set below fulfillment cost would make the fee exceed the
+  // charge — refuse rather than silently losing money.
+  if (applicationFeeCents >= totalCents + shippingCents) {
+    return NextResponse.json(
+      { error: "Campaign pricing does not cover fulfillment costs — please contact the organizer" },
+      { status: 400 }
+    )
+  }
 
   // Build Stripe line items
   const lineItems = items.map((item) => {
@@ -95,6 +123,19 @@ export async function POST(request: NextRequest) {
       transfer_data: { destination: org.stripeAccountId },
     },
     shipping_address_collection: { allowed_countries: ["US"] },
+    shipping_options: [
+      {
+        shipping_rate_data: {
+          type: "fixed_amount",
+          fixed_amount: { amount: shippingCents, currency: "usd" },
+          display_name: "Standard shipping",
+          delivery_estimate: {
+            minimum: { unit: "business_day", value: 5 },
+            maximum: { unit: "business_day", value: 8 },
+          },
+        },
+      },
+    ],
     success_url: `${appUrl}/orders/${order.id}?success=1`,
     cancel_url: `${appUrl}/${campaign.slug}`,
     metadata: { orderId: order.id },

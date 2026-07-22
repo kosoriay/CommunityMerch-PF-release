@@ -264,6 +264,16 @@ export const platformConfig = sqliteTable("platform_config", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 })
 
+// ── Landing page content (operator-editable, sparse JSON document) ─────────
+
+export const landingContent = sqliteTable("landing_content", {
+  id: text("id").primaryKey().default("singleton"),
+  // Sparse JSON document — only operator-customized sections are stored.
+  // Shape + validation: src/lib/landing-content.ts
+  content: text("content").notNull().default("{}"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+})
+
 // ── Printful catalog (admin-curated product list) ──────────────────────────
 
 export const printfulCatalog = sqliteTable("printful_catalog", {
