@@ -8,6 +8,21 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.6.0] - 2026-07-23
+
+### Added
+- **セットアップウィザードで R2 公開 URL の設定ミスを検出**: `CLOUDFLARE_R2_PUBLIC_URL` に S3 API エンドポイント（`*.r2.cloudflarestorage.com`）が設定されている場合、Step 8 で赤色の警告と正しい値（Public Development URL `pub-*.r2.dev`）の取得手順を表示（実環境のセットアップで実際に発生した設定ミス）
+- セットアップガイドに**テストモード動作確認チートシート**を追加: Stripe テスト用の magic value（生年月日・銀行口座・認証コード・テストカード）、州と ZIP が一致する住所の必要性、確認ポイント一覧
+- セットアップガイドに **Vercel「Redeploy」の落とし穴**の注意書きを追加: Redeploy は古いコードスナップショットを再公開してしまうため、コード更新は Sync fork / コミットで行う旨を明記（FAQ にも追加）
+- セットアップガイドに **Webhook URL はコピー＆ペースト必須**の注意書きを追加: タイプミス時は 404 が並ぶこと、修正後は「Resend」で再送できることを明記
+- **フルフィルメント失敗注文のリカバリーフロー**の OpenSpec 提案を作成（`openspec/changes/2026-07-23-add-failed-order-recovery/`）: 管理画面での失敗注文の可視化・住所修正・再実行を将来実装としてスコープ化
+
+### Changed
+- **団体ダッシュボードの「Manage payouts」をボタン化**: 口座連携が未完了の場合は目立つプライマリボタン「Set up payouts →」、完了後はアウトラインの「Manage payouts」を表示（テキストリンクで見つけにくいという実利用フィードバックに対応）
+- 要件定義書・システム設計書を実装に同期: Webhook イベントを `checkout.session.completed` に修正（2本のエンドポイント構成を明記）、配布フローを Fork + Import 方式に更新、ユニットエコノミクスを購入者送料負担モデル（$28 + $4.69 送料 → 手数料 $22.10 / 団体 $10.59）に更新
+
+---
+
 ## [1.5.3] - 2026-07-23
 
 ### Fixed

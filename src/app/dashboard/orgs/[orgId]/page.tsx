@@ -66,9 +66,14 @@ export default async function OrgPage({ params }: Props) {
           {isAdmin && (
             <Link
               href={`/dashboard/orgs/${orgId}/settings/payouts`}
-              className="text-sm text-primary underline-offset-4 hover:underline mt-1 inline-block"
+              className={
+                buttonVariants({
+                  variant: payoutStatus === "ready" ? "outline" : "default",
+                  size: "sm",
+                }) + " mt-3"
+              }
             >
-              Manage payouts
+              {payoutStatus === "ready" ? "Manage payouts" : "Set up payouts →"}
             </Link>
           )}
         </div>
