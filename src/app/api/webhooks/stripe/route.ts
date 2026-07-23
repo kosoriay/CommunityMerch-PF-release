@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { after } from "next/server"
 import { stripe } from "@/lib/providers/stripe"
 import { markOrderPaid } from "@/lib/orders"
 import { submitFulfillment } from "@/lib/fulfillment"
@@ -60,9 +61,17 @@ export async function POST(request: NextRequest) {
         shippingAddressJson: shippingAddress ? JSON.stringify(shippingAddress) : "",
       })
 
-      // Fire-and-forget: fulfillment errors must NOT cause a 500 (Stripe retries = duplicate Printful orders)
-      submitFulfillment(orderId).catch((err) => {
-        console.error("[webhook] fulfillment error (async):", err)
+      // Runs after the 200 response is sent, but — unlike a bare floating
+      // promise — after() keeps the serverless function alive until it
+      // finishes. Fulfillment errors still never cause a 500 (Stripe retries
+      // would create duplicate Printful orders); submitFulfillment records
+      // failures internally.
+      after(async () => {
+        try {
+          await submitFulfillment(orderId)
+        } catch (err) {
+          console.error("[webhook] fulfillment error (async):", err)
+        }
       })
     }
 

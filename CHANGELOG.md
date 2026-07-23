@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.1] - 2026-07-23
+
+### Fixed
+- **決済後に Printful 注文と確認メールが処理されない問題**: Webhook が 200 を返した直後にサーバーレス関数が凍結され、投げっぱなしにしていたフルフィルメント処理（Printful 注文作成 → 注文確認メール送信）が実行されないことがあった。Next.js の `after()` に載せ替え、レスポンス返却後も処理の完走を保証するように修正（実環境の E2E テストで発見）
+
+---
+
 ## [1.5.0] - 2026-07-23
 
 ### Changed
