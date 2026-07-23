@@ -31,6 +31,11 @@ export async function publishCampaignAction(
   if (campaign.products.length === 0) {
     redirect(`/dashboard/orgs/${orgId}/campaigns/${campaignId}/publish?error=no-products`)
   }
+  // A design is what gets printed — without one, paid orders cannot be
+  // fulfilled (they stall as "manual fulfillment required").
+  if (!campaign.design?.designFileUrl) {
+    redirect(`/dashboard/orgs/${orgId}/campaigns/${campaignId}/publish?error=no-design`)
+  }
 
   const org = await db.query.organizations.findFirst({
     where: eq(organizations.id, orgId),

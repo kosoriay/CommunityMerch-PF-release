@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.2] - 2026-07-23
+
+### Fixed
+- **Printful のエラー内容が握りつぶされる問題**: Printful API のエラーはオブジェクト形式（`{reason, message}`）でも返るが、文字列前提の処理だったため「.includes is not a function」で自壊し、本当の失敗理由がログに出なかった。両形式に対応し、実際のエラーメッセージを記録するように修正
+- **デザイン未アップロードのキャンペーンを公開できてしまう問題**: 公開後に購入されるとフルフィルメントが「manual fulfillment required」で止まり、購入者のお金を預かったまま発送できない状態になっていた。公開（Go Live）時にデザイン必須のチェックを追加し、未アップロード時はボタンを無効化 + デザイン画面への誘導リンクを表示（実環境の E2E テストで発見）
+
+---
+
 ## [1.5.1] - 2026-07-23
 
 ### Fixed

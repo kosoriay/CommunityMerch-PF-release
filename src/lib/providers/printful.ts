@@ -97,11 +97,20 @@ export async function submitPrintfulOrder(
     body: JSON.stringify(body),
   })
 
-  const data = await res.json() as { code: number; result?: PrintfulOrderResult; error?: string }
+  const data = await res.json() as {
+    code: number
+    result?: PrintfulOrderResult
+    // Printful returns error sometimes as a string, sometimes as {reason, message}
+    error?: string | { reason?: string; message?: string }
+  }
 
   if (!res.ok) {
+    const errorMessage =
+      typeof data.error === "string"
+        ? data.error
+        : data.error?.message ?? data.error?.reason ?? `HTTP ${res.status}`
     // Check for duplicate order (idempotency) — Printful returns 400 with "Order with this external_id already exists"
-    if (data.error?.includes("external_id")) {
+    if (errorMessage.includes("external_id")) {
       // Already submitted — look up and return the existing order
       const existing = await fetch(`${BASE_URL}/orders/@${orderId}`, {
         headers: { Authorization: AUTH },
@@ -109,7 +118,7 @@ export async function submitPrintfulOrder(
       const existingData = await existing.json() as { result: PrintfulOrderResult }
       return existingData.result
     }
-    throw new Error(`Printful order submission failed: ${data.error ?? res.status}`)
+    throw new Error(`Printful order submission failed: ${errorMessage}`)
   }
 
   return data.result!

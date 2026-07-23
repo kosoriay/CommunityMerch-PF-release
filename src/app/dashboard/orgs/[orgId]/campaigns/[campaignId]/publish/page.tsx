@@ -18,6 +18,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   forbidden: "Only admins can publish campaigns.",
   "not-found": "Campaign not found.",
   "no-products": "Add at least one product before publishing.",
+  "no-design": "Upload a design before going live — it's what gets printed on your merchandise.",
 }
 
 export default async function PublishPage({ params, searchParams }: Props) {
@@ -79,8 +80,14 @@ export default async function PublishPage({ params, searchParams }: Props) {
               <p className="text-sm text-green-700 font-medium">Design uploaded ✓</p>
             </div>
           ) : (
-            <p className="text-sm text-yellow-600">
-              ⚠ No design uploaded — you can publish without one and add it later.
+            <p className="text-sm text-red-600">
+              ⚠ No design uploaded — a design is required before going live.{" "}
+              <Link
+                href={`/dashboard/orgs/${orgId}/campaigns/${campaignId}/design`}
+                className="underline"
+              >
+                Upload a design.
+              </Link>
             </p>
           )}
 
@@ -171,7 +178,7 @@ export default async function PublishPage({ params, searchParams }: Props) {
                 <button
                   type="submit"
                   className={buttonVariants()}
-                  disabled={campaign.products.length === 0}
+                  disabled={campaign.products.length === 0 || !campaign.design?.designFileUrl}
                 >
                   🚀 Go Live
                 </button>
