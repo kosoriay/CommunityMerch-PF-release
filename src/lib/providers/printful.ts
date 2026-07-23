@@ -1,3 +1,5 @@
+import { toPrintfulExternalId } from "@/lib/printful-ids"
+
 if (!process.env.PRINTFUL_API_KEY) throw new Error("PRINTFUL_API_KEY is required")
 
 const BASE_URL = "https://api.printful.com"
@@ -79,8 +81,10 @@ export async function submitPrintfulOrder(
   recipient: PrintfulRecipient,
   items: PrintfulOrderItem[]
 ): Promise<PrintfulOrderResult> {
+  // Printful rejects external_ids over 32 chars — UUIDs are mapped losslessly
+  const externalId = toPrintfulExternalId(orderId)
   const body = {
-    external_id: orderId,
+    external_id: externalId,
     shipping: "STANDARD",
     recipient,
     items,
@@ -112,7 +116,7 @@ export async function submitPrintfulOrder(
     // Check for duplicate order (idempotency) — Printful returns 400 with "Order with this external_id already exists"
     if (errorMessage.includes("external_id")) {
       // Already submitted — look up and return the existing order
-      const existing = await fetch(`${BASE_URL}/orders/@${orderId}`, {
+      const existing = await fetch(`${BASE_URL}/orders/@${externalId}`, {
         headers: { Authorization: AUTH },
       })
       const existingData = await existing.json() as { result: PrintfulOrderResult }

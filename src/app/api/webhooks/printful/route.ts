@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { markOrderShipped, getOrder } from "@/lib/orders"
 import { sendShippingNotificationEmail } from "@/lib/email"
+import { fromPrintfulExternalId } from "@/lib/printful-ids"
 
 if (!process.env.PRINTFUL_WEBHOOK_SECRET) {
   throw new Error("PRINTFUL_WEBHOOK_SECRET is required")
@@ -45,7 +46,8 @@ export async function POST(request: NextRequest) {
   }
 
   const { order: printfulOrder, shipment } = payload.data
-  const orderId = printfulOrder.external_id
+  // external_id is the hyphen-stripped order UUID (Printful's 32-char limit)
+  const orderId = fromPrintfulExternalId(printfulOrder.external_id)
 
   if (!orderId) {
     console.error("[printful-webhook] no external_id in payload")

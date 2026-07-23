@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.5.3] - 2026-07-23
+
+### Fixed
+- **Printful が注文を「Invalid External ID」で拒否する問題**: Printful の external_id は最大32文字だが、注文ID（UUID・36文字）をそのまま送っていた。ハイフンを除いた32文字へ可逆変換して送信し、発送通知 Webhook での逆引きも対応（実環境の E2E テストで発見）
+
+---
+
 ## [1.5.2] - 2026-07-23
 
 ### Fixed
