@@ -392,6 +392,8 @@ X7kPqR2mNvLwHs4cBjYeAf9dZuMtGnVo1iCxKpEb6=
 
 > 「This branch is up to date」と表示されている場合は、すでに最新です。
 
+> 💡 **新バージョンの通知を自動で受け取るには**: プラットフォーム提供者の公開リポジトリ（Fork 元）のページで **「Watch」→「Custom」→「Releases」にチェック → Apply** としておくと、新しいバージョンが公開されるたびに GitHub からメール通知が届きます。届いたら上の「Sync fork」をすれば最新化できます。
+
 ---
 
 ## Phase 3: サービス名・カラーを設定する

@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - リリースごとの Git タグ運用を導入: `/release` スキルが開発リポジトリに `vX.Y.Z` タグを付与し、同期 workflow がリリースリポジトリにも同名タグを自動付与。過去分（v1.0.0〜v1.4.0）も遡及してタグ付け
+- **GitHub Release の自動発行**: リリースごとに、CHANGELOG の該当バージョン部分をリリースノートとして公開リポジトリに Release を自動作成（`RELEASE_REPO_TOKEN` シークレット使用）。ライセンシーは公開リポジトリを Watch → Custom → Releases に設定するだけで新バージョン通知を受け取れる（ガイドに手順を追記）
 - `CHANGELOG.md` をリリースリポジトリの同期対象に追加（ライセンシーが更新内容を確認できるように）
 
 ---
