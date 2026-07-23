@@ -236,6 +236,14 @@ export default async function SetupStepPage({ params }: Props) {
     const allRequiredSet = svc.required.every((k) => requiredStatus[k])
     const boundAction = advanceServiceStep.bind(null, stepNum)
 
+    // R2 public URL misconfig: the S3 API endpoint (*.r2.cloudflarestorage.com)
+    // is not publicly readable — uploaded designs would render as broken images.
+    // The correct value is the bucket's Public Development URL (pub-*.r2.dev)
+    // or a connected custom domain.
+    const r2PublicUrl = process.env.CLOUDFLARE_R2_PUBLIC_URL ?? ""
+    const r2PublicUrlIsS3Endpoint =
+      stepNum === 8 && r2PublicUrl.includes("r2.cloudflarestorage.com")
+
     return (
       <div className="space-y-6">
         <div>
@@ -279,6 +287,20 @@ export default async function SetupStepPage({ params }: Props) {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {r2PublicUrlIsS3Endpoint && (
+            <div className="rounded bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+              ✕ <code className="font-mono bg-red-100 px-1 rounded text-xs">CLOUDFLARE_R2_PUBLIC_URL</code>{" "}
+              is set to the S3 API endpoint (<code className="font-mono text-xs">*.r2.cloudflarestorage.com</code>),
+              which is not publicly readable — uploaded designs will show as broken images.
+              <br />
+              <span className="text-xs">
+                Use the bucket&apos;s <strong>Public Development URL</strong> instead
+                (R2 → your bucket → Settings → Public access → enable &quot;Public Development URL&quot;,
+                then copy the <code className="font-mono">https://pub-….r2.dev</code> URL), or a connected custom domain.
+              </span>
             </div>
           )}
 
