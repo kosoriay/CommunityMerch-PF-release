@@ -31,6 +31,24 @@ export type PrintfulOrderResult = {
   status: string
 }
 
+// Fetch the current Printful price (in cents) for one specific variant of a
+// product. Returns null when the product/variant can't be resolved — callers
+// treat that as "skip", never as zero.
+export async function getPrintfulVariantPriceCents(
+  printfulProductId: number,
+  variantId: number
+): Promise<number | null> {
+  const res = await fetch(`${BASE_URL}/products/${printfulProductId}`, {
+    headers: { Authorization: AUTH },
+  })
+  if (!res.ok) return null
+  const data = await res.json() as { result: { variants: { id: number; price: string }[] } }
+  const variant = data.result.variants.find((v) => v.id === variantId)
+  if (!variant) return null
+  const cents = Math.round(parseFloat(variant.price) * 100)
+  return Number.isFinite(cents) && cents > 0 ? cents : null
+}
+
 // Look up Printful numeric variant ID for a given product, size, and color.
 export async function getPrintfulVariantId(
   printfulProductId: number,

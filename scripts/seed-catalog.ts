@@ -69,7 +69,9 @@ async function seed() {
           name: variant.name,
           description: variant.description,
           catalogImageUrl: variant.catalogImageUrl,
-          podCostCents: variant.podCostCents,
+          // podCostCents deliberately NOT updated on conflict: the weekly
+          // catalog-prices cron owns prices after the initial insert — a
+          // redeploy must not revert synced prices to these static values.
           availableColors: JSON.stringify(variant.availableColors),
           displayOrder: index,
           defaultMockupVariantId: MOCKUP_VARIANT_IDS[id] ?? null,
