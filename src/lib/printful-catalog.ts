@@ -340,6 +340,13 @@ export function itemsNeededForGoal(goalCents: number, profitPerItemCents: number
   return Math.ceil(goalCents / profitPerItemCents)
 }
 
+// Default retail price suggestion: the first whole dollar at or above 2×
+// production cost — the standard POD fundraising markup. Guarantees a healthy
+// positive margin for every catalog item (profit ≈ 0.65 × cost − 30¢).
+export function suggestedRetailCents(podCostCents: number): number {
+  return Math.ceil((podCostCents * 2) / 100) * 100
+}
+
 // US standard shipping, charged to the buyer at checkout. Printful bills the
 // platform owner product cost + shipping per order, so checkout collects
 // shipping from the buyer and recovers it via the Stripe application fee.

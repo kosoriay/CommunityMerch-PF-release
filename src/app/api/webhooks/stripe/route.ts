@@ -10,7 +10,16 @@ import type Stripe from "stripe"
 if (!process.env.STRIPE_WEBHOOK_SECRET) {
   throw new Error("STRIPE_WEBHOOK_SECRET is required")
 }
-const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET
+// Stripe issues a separate signing secret per endpoint, and "your account"
+// events (checkout.session.completed) vs "connected accounts" events
+// (account.updated) can only be delivered to separate endpoints. Both
+// endpoints point at this route, so verification tries each configured
+// secret. STRIPE_CONNECT_WEBHOOK_SECRET is optional — without it, connected
+// account events cannot be verified and org onboarding never completes.
+const WEBHOOK_SECRETS = [
+  process.env.STRIPE_WEBHOOK_SECRET,
+  process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
+].filter((s): s is string => Boolean(s))
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text()
@@ -20,10 +29,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing stripe-signature header" }, { status: 400 })
   }
 
-  let event: Stripe.Event
-  try {
-    event = stripe.webhooks.constructEvent(rawBody, signature, WEBHOOK_SECRET)
-  } catch {
+  let event: Stripe.Event | null = null
+  for (const secret of WEBHOOK_SECRETS) {
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, signature, secret)
+      break
+    } catch {
+      // try the next configured secret
+    }
+  }
+  if (!event) {
     return NextResponse.json({ error: "Webhook signature verification failed" }, { status: 400 })
   }
 

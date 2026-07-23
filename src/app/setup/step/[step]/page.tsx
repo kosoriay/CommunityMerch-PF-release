@@ -32,8 +32,13 @@ const SERVICE_STEPS: Record<number, {
   4: {
     title: "Payments (Stripe)",
     description: "Stripe processes payments and handles bank payouts to organizations.",
-    required: ["STRIPE_SECRET_KEY", "STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET"],
-    docsNote: "See system-design.md → External Service Setup → Stripe",
+    required: [
+      "STRIPE_SECRET_KEY",
+      "STRIPE_PUBLISHABLE_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_CONNECT_WEBHOOK_SECRET",
+    ],
+    docsNote: "See system-design.md → External Service Setup → Stripe (two webhook endpoints required)",
   },
   5: {
     title: "Print-on-Demand (Printful)",

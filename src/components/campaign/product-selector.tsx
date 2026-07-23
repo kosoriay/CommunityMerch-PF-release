@@ -7,6 +7,7 @@ import {
   PRESET_PACKS,
   calculateMargin,
   itemsNeededForGoal,
+  suggestedRetailCents,
   type PresetPackId,
 } from "@/lib/printful-catalog"
 import { formatCents } from "@/lib/format"
@@ -69,7 +70,7 @@ export function ProductSelector({ catalog, initial, onSelectionChange }: Props) 
   const profits = selectedIds.map((id) => {
     const item = catalog.find((c) => c.id === id)
     if (!item) return 0
-    const retailStr = retailPrices[id] ?? "28.00"
+    const retailStr = retailPrices[id] ?? (suggestedRetailCents(item.podCostCents) / 100).toFixed(2)
     const retailCents = Math.round(parseFloat(retailStr || "0") * 100)
     if (retailCents <= 0) return 0
     return calculateMargin(retailCents, item.podCostCents).profitCents
@@ -104,7 +105,7 @@ export function ProductSelector({ catalog, initial, onSelectionChange }: Props) 
         <div className="divide-y border rounded-lg">
           {catalog.map((item) => {
             const isSelected = selectedIds.includes(item.id)
-            const retailStr = retailPrices[item.id] ?? "28.00"
+            const retailStr = retailPrices[item.id] ?? (suggestedRetailCents(item.podCostCents) / 100).toFixed(2)
             const retailCents = Math.round(parseFloat(retailStr || "0") * 100)
             const margin = isSelected && retailCents > 0
               ? calculateMargin(retailCents, item.podCostCents)
@@ -162,13 +163,16 @@ export function ProductSelector({ catalog, initial, onSelectionChange }: Props) 
                         {margin && (
                           <div className="text-xs space-y-0.5 pl-6">
                             <p className="text-muted-foreground">
-                              Production + buffer: {formatCents(margin.podWithBufferCents)}
+                              Production cost (+10% safety buffer): {formatCents(margin.podWithBufferCents)}
                             </p>
                             <p className="text-muted-foreground">
                               Platform fee (9%): {formatCents(margin.platformFeeCents)}
                             </p>
                             <p className="text-muted-foreground">
-                              Stripe fees: {formatCents(margin.stripeFeesCents)}
+                              Payment processing: {formatCents(margin.stripeFeesCents)}
+                            </p>
+                            <p className="text-muted-foreground">
+                              Shipping: paid by the buyer at checkout — does not affect your profit
                             </p>
                             <p className={`font-semibold ${margin.profitCents < 0 ? "text-red-600" : "text-green-700"}`}>
                               Your profit per item: {formatCents(margin.profitCents)}

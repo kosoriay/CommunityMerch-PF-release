@@ -354,9 +354,9 @@
 9. 「Create new token」をクリック
 10. 表示された API Token を**必ずメモ**（この画面を閉じると二度と表示されません）
 
-| 準備状況 | API Token | ストア名 |
-|---------|---------|--------|
-| ☐ | **必ずメモ！** | &nbsp; |
+| 準備状況 | API Token | ストア名 | 支払い方法の登録 |
+|---------|---------|--------|---------------|
+| ☐ | **必ずメモ！** | &nbsp; | ☐ **必須**（Billing → Payment methods にカード登録。未登録だと注文の自動確定が失敗し発送されません） |
 
 ---
 
@@ -464,6 +464,8 @@ EMAIL_FROM=noreply@あなたのドメイン.com
 STRIPE_SECRET_KEY=sk_test_ここに入力（本番は sk_live_...）
 STRIPE_PUBLISHABLE_KEY=pk_test_ここに入力（本番は pk_live_...）
 STRIPE_WEBHOOK_SECRET=whsec_ここに入力
+# 団体の口座連携の完了検知用（Connected accounts エンドポイントのシークレット・別途発行）
+STRIPE_CONNECT_WEBHOOK_SECRET=whsec_ここに入力
 
 # ─── Cloudflare R2（ファイルストレージ）────────────────────────────────────
 CLOUDFLARE_R2_ACCOUNT_ID=ここに入力

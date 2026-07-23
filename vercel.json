@@ -5,6 +5,10 @@
     {
       "path": "/api/cron/mockup-cleanup",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/catalog-prices",
+      "schedule": "0 5 * * 1"
     }
   ]
 }

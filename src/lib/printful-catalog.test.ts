@@ -8,6 +8,7 @@ import {
   DEFAULT_SHIPPING_RATE,
   estimateShippingCents,
   calculateCheckoutApplicationFee,
+  suggestedRetailCents,
   type PrintfulVariantId,
 } from "./printful-catalog"
 
@@ -53,6 +54,21 @@ describe("PRINTFUL_PRODUCT_IDS", () => {
     for (const id of internalIds) {
       expect(PRINTFUL_PRODUCT_IDS[id]).toBeDefined()
       expect(typeof PRINTFUL_PRODUCT_IDS[id]).toBe("number")
+    }
+  })
+})
+
+describe("suggestedRetailCents", () => {
+  it("should round 2x production cost up to the next whole dollar", () => {
+    expect(suggestedRetailCents(940)).toBe(1900) // $9.40 → $18.80 → $19.00
+    expect(suggestedRetailCents(1225)).toBe(2500) // $12.25 → $24.50 → $25.00
+    expect(suggestedRetailCents(1800)).toBe(3600) // $18.00 → exactly $36.00
+  })
+
+  it("should always yield a positive margin for every catalog item", () => {
+    for (const variant of Object.values(PRINTFUL_VARIANTS)) {
+      const retail = suggestedRetailCents(variant.podCostCents)
+      expect(calculateMargin(retail, variant.podCostCents).profitCents).toBeGreaterThan(0)
     }
   })
 })

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Menu, X } from 'lucide-react'
+import { Menu, X, ShieldCheck } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 
 type AdminNavProps = {
@@ -20,10 +20,10 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
     .replace(/\b\w/g, (c) => c.toUpperCase()) ?? ''
 
   const linkClass = (href: string) =>
-    `text-sm hover:text-foreground transition-colors ${
+    `text-sm transition-colors hover:text-white ${
       pathname.startsWith(href)
-        ? 'text-foreground font-medium'
-        : 'text-muted-foreground'
+        ? 'text-white font-medium'
+        : 'text-slate-300'
     }`
 
   const links = [
@@ -39,10 +39,16 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
   ]
 
   return (
-    <nav className="bg-white border-b">
+    <nav className="bg-slate-900 border-b-4 border-amber-400">
       {/* Desktop + mobile top bar */}
       <div className="px-4 md:px-6 py-3 flex items-center gap-6">
-        <span className="font-semibold text-sm shrink-0">Platform Admin</span>
+        <span className="flex items-center gap-2 shrink-0">
+          <span className="inline-flex items-center gap-1 rounded bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-900">
+            <ShieldCheck size={12} aria-hidden="true" />
+            Admin
+          </span>
+          <span className="font-semibold text-sm text-white">Platform Admin</span>
+        </span>
 
         {/* Desktop links */}
         <div className="hidden md:flex items-center gap-6 flex-1">
@@ -51,14 +57,14 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
               {l.label}
             </Link>
           ))}
-          <div className="ml-auto text-xs text-muted-foreground">
+          <div className="ml-auto text-xs text-slate-400">
             {email} · {roleLabel}
           </div>
         </div>
 
         {/* Mobile hamburger */}
         <button
-          className="md:hidden ml-auto p-1 text-muted-foreground hover:text-foreground"
+          className="md:hidden ml-auto p-1 text-slate-300 hover:text-white"
           onClick={() => setIsOpen((o) => !o)}
           aria-label={isOpen ? 'Close menu' : 'Open menu'}
         >
@@ -68,7 +74,7 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
 
       {/* Mobile dropdown menu */}
       {isOpen && (
-        <div className="md:hidden border-t bg-white px-4 py-3 flex flex-col gap-3">
+        <div className="md:hidden border-t border-slate-700 bg-slate-900 px-4 py-3 flex flex-col gap-3">
           {links.map((l) => (
             <Link
               key={l.href}
@@ -79,7 +85,7 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
               {l.label}
             </Link>
           ))}
-          <div className="pt-2 border-t text-xs text-muted-foreground">
+          <div className="pt-2 border-t border-slate-700 text-xs text-slate-400">
             {email} · {roleLabel}
           </div>
         </div>
