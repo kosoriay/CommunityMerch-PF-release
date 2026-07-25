@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.8.0] - 2026-07-24
+
+### Added
+- **ランディングページ右上にログイン導線を追加**: 未ログインの訪問者には「Sign in」ボタン、ログイン済みユーザーには「Dashboard →」ボタンを表示。既存ユーザーがトップページから自分のダッシュボードに戻れなかったギャップを解消
+
+---
+
 ## [1.7.0] - 2026-07-24
 
 ### Added
