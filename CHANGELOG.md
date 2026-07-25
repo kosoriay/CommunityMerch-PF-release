@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.8.1] - 2026-07-24
+
+### Fixed
+- **管理画面（/admin）に Sign out ボタンがなかった問題**: 管理ナビの右端（モバイルはメニュー内）にログアウトを追加。従来は団体ダッシュボードに移動しないとログアウトできなかった
+
+---
+
 ## [1.8.0] - 2026-07-24
 
 ### Added
