@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.9.1] - 2026-07-24
+
+### Changed
+- **トップページの実績統計に表示のしきい値を導入**: 「1 Campaigns launched」「5 Organizations」のような小さい数字は社会的証明として逆効果のため、一定数に達するまで非表示に変更（調達額 $1,000 以上・キャンペーン 10 件以上・団体 10 団体以上。全て未達の場合はセクションごと非表示 — 従来の「0 のときだけ隠す」から変更）
+
+---
+
 ## [1.9.0] - 2026-07-24
 
 ### Changed

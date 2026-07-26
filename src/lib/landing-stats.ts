@@ -40,17 +40,25 @@ function formatWholeDollars(cents: number): string {
   }).format(cents / 100)
 }
 
-// Hide-when-zero: zero tiles are dropped; an empty result means the caller
+// A stat only works as social proof once it's big enough to impress —
+// "1 campaign launched" reads as a warning label, not a credential.
+// Tiles below these floors are dropped; an empty result means the caller
 // skips the whole section (spec: social proof is never fabricated).
+export const STAT_TILE_MINIMUMS = {
+  raisedCents: 100_000, // $1,000
+  campaignsLaunched: 10,
+  organizations: 10,
+} as const
+
 export function buildStatTiles(stats: LandingStats): StatTile[] {
   const tiles: StatTile[] = []
-  if (stats.totalRaisedCents > 0) {
+  if (stats.totalRaisedCents >= STAT_TILE_MINIMUMS.raisedCents) {
     tiles.push({ value: formatWholeDollars(stats.totalRaisedCents), label: "Raised by communities" })
   }
-  if (stats.campaignsLaunched > 0) {
+  if (stats.campaignsLaunched >= STAT_TILE_MINIMUMS.campaignsLaunched) {
     tiles.push({ value: String(stats.campaignsLaunched), label: "Campaigns launched" })
   }
-  if (stats.organizations > 0) {
+  if (stats.organizations >= STAT_TILE_MINIMUMS.organizations) {
     tiles.push({ value: String(stats.organizations), label: "Organizations fundraising" })
   }
   return tiles
