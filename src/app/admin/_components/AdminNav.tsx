@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Menu, X, ShieldCheck } from 'lucide-react'
 import { usePathname } from 'next/navigation'
+import { signOut } from '@/app/dashboard/_actions'
 
 type AdminNavProps = {
   email: string
@@ -57,8 +58,18 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
               {l.label}
             </Link>
           ))}
-          <div className="ml-auto text-xs text-slate-400">
-            {email} · {roleLabel}
+          <div className="ml-auto flex items-center gap-4">
+            <span className="text-xs text-slate-400">
+              {email} · {roleLabel}
+            </span>
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="text-xs text-slate-300 underline underline-offset-2 hover:text-white transition-colors"
+              >
+                Sign out
+              </button>
+            </form>
           </div>
         </div>
 
@@ -85,8 +96,18 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
               {l.label}
             </Link>
           ))}
-          <div className="pt-2 border-t border-slate-700 text-xs text-slate-400">
-            {email} · {roleLabel}
+          <div className="pt-2 border-t border-slate-700 flex items-center justify-between">
+            <span className="text-xs text-slate-400">
+              {email} · {roleLabel}
+            </span>
+            <form action={signOut}>
+              <button
+                type="submit"
+                className="text-xs text-slate-300 underline underline-offset-2 hover:text-white transition-colors"
+              >
+                Sign out
+              </button>
+            </form>
           </div>
         </div>
       )}

@@ -5,6 +5,7 @@ import { requireOrgAccess } from "@/lib/middleware/require-org-access"
 import { getOrg, getOrgMembers } from "@/lib/orgs"
 import { getPayoutStatus, PAYOUT_STATUS_LABEL, PAYOUT_STATUS_TEXT_CLASS } from "@/lib/payouts"
 import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import Link from "next/link"
 
 type Props = { params: Promise<{ orgId: string }> }
@@ -66,12 +67,15 @@ export default async function OrgPage({ params }: Props) {
           {isAdmin && (
             <Link
               href={`/dashboard/orgs/${orgId}/settings/payouts`}
-              className={
+              className={cn(
                 buttonVariants({
                   variant: payoutStatus === "ready" ? "outline" : "default",
                   size: "sm",
-                }) + " mt-3"
-              }
+                }),
+                "mt-3",
+                // the default outline border is invisible on the white card
+                payoutStatus === "ready" && "border-slate-400 bg-slate-50 hover:bg-slate-100"
+              )}
             >
               {payoutStatus === "ready" ? "Manage payouts" : "Set up payouts →"}
             </Link>

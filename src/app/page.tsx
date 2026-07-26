@@ -1,9 +1,12 @@
 import Link from "next/link"
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
+import { auth } from "@/lib/auth"
 import { getOrCreateConfig } from "@/lib/platform-config"
 import { getLandingContent } from "@/lib/landing-content-db"
 import { buildStatTiles, getLandingStats } from "@/lib/landing-stats"
 import { HowItWorks } from "@/components/landing/how-it-works"
+import { ReadyChecklist } from "@/components/landing/ready-checklist"
 import { StatBand } from "@/components/landing/stat-band"
 import { Testimonials } from "@/components/landing/testimonials"
 import { Faq } from "@/components/landing/faq"
@@ -22,11 +25,34 @@ export default async function LandingPage() {
     redirect("/setup/step/1")
   }
 
-  const [content, stats] = await Promise.all([getLandingContent(), getLandingStats()])
+  const [content, stats, session] = await Promise.all([
+    getLandingContent(),
+    getLandingStats(),
+    auth.api.getSession({ headers: await headers() }),
+  ])
   const statTiles = buildStatTiles(stats)
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center gap-16 px-4 py-16">
+    <div className="relative min-h-screen bg-gray-50 flex flex-col items-center gap-16 px-4 py-16">
+      {/* Returning-user entry point */}
+      <nav className="absolute top-5 right-5">
+        {session ? (
+          <Link
+            href="/dashboard"
+            className="text-sm font-medium text-white px-4 py-2 rounded-lg hover:brightness-110 transition"
+            style={{ backgroundColor: config.primaryColor }}
+          >
+            Dashboard →
+          </Link>
+        ) : (
+          <Link
+            href="/sign-in"
+            className="text-sm font-medium text-gray-600 hover:text-gray-900 px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 transition"
+          >
+            Sign in
+          </Link>
+        )}
+      </nav>
       {/* Hero */}
       <section className="flex flex-col items-center gap-6">
         <div className="flex flex-col items-center gap-3">
@@ -81,6 +107,7 @@ export default async function LandingPage() {
       </section>
 
       <HowItWorks steps={content.howItWorks} accentColor={config.accentColor} />
+      <ReadyChecklist platformName={config.platformName} accentColor={config.accentColor} />
       <StatBand tiles={statTiles} primaryColor={config.primaryColor} />
       <Testimonials items={content.testimonials} accentColor={config.accentColor} />
       <Faq items={content.faqs} />
