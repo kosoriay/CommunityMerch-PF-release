@@ -29,6 +29,31 @@ type OrderItem = {
   unitPrice: number
 }
 
+/**
+ * Support footer for buyer-facing mail. Items ship from an unbranded printing
+ * facility, so this — alongside the order page and the packing slip — is how a
+ * buyer finds us instead of writing to the printer, who has no relationship
+ * with them and cannot help.
+ */
+function supportHtml(data: {
+  orderId: string
+  platformName: string
+  supportEmail: string | null
+}): string {
+  const orderRef = data.orderId.slice(0, 8).toUpperCase()
+  const contact = data.supportEmail
+    ? `email <a href="mailto:${escapeHtml(data.supportEmail)}?subject=Order%20${orderRef}">${escapeHtml(data.supportEmail)}</a>`
+    : `contact ${escapeHtml(data.platformName)}`
+  return `
+    <hr>
+    <p><strong>Need help with this order?</strong><br>
+    Please ${contact} and quote order <strong>${orderRef}</strong>.
+    If an item arrives damaged or misprinted, attach a photo and we'll send a replacement.</p>
+    <p style="font-size:12px;color:#666">Please don't ship returns to the address printed on the
+    parcel — that facility can't match a package to your order.</p>
+  `
+}
+
 export async function sendOrderConfirmationEmail(
   to: string,
   data: {
@@ -44,6 +69,8 @@ export async function sendOrderConfirmationEmail(
       state?: string
       postal_code?: string
     } | null
+    platformName: string
+    supportEmail: string | null
   }
 ): Promise<void> {
   const itemsHtml = data.items
@@ -66,6 +93,7 @@ export async function sendOrderConfirmationEmail(
     <p><strong>Shipping to:</strong></p>
     ${shippingHtml}
     <p>You'll receive a shipping notification when your order is dispatched.</p>
+    ${supportHtml(data)}
   `
 
   if (!resend) {
@@ -90,6 +118,8 @@ export async function sendShippingNotificationEmail(
     carrier: string
     trackingNumber: string
     trackingUrl: string
+    platformName: string
+    supportEmail: string | null
   }
 ): Promise<void> {
   const html = `
@@ -99,6 +129,7 @@ export async function sendShippingNotificationEmail(
     <p><strong>Carrier:</strong> ${escapeHtml(data.carrier)}</p>
     <p><strong>Tracking number:</strong> ${escapeHtml(data.trackingNumber)}</p>
     <p><a href="${escapeHtml(data.trackingUrl)}">Track your package →</a></p>
+    ${supportHtml(data)}
   `
 
   if (!resend) {

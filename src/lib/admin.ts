@@ -1,7 +1,8 @@
 import { db } from "@/lib/db/client"
 import { organizations, campaigns, orders, user } from "@/lib/db/schema"
-import { eq, isNotNull, count, sum, desc } from "drizzle-orm"
+import { eq, isNotNull, count, sum, desc, or, sql } from "drizzle-orm"
 import type { InferSelectModel } from "drizzle-orm"
+import { parseOrderQuery } from "@/lib/order-search"
 
 export type AdminOrg = InferSelectModel<typeof organizations>
 
@@ -70,6 +71,34 @@ export async function setInternalOrg(orgId: string, isInternal: boolean): Promis
     .set({ isInternal, updatedAt: new Date() })
     .where(eq(organizations.id, orgId))
 }
+
+const ORDER_SEARCH_LIMIT = 50
+
+/**
+ * Look up orders for support. A buyer writing in quotes the short id shown on
+ * their confirmation page or email, so the id is matched as a prefix; email and
+ * name are matched as substrings because we cannot rely on which one they give.
+ *
+ * With no query, returns the most recent orders so the page is useful on open.
+ */
+export async function searchOrders(rawQuery: string) {
+  const q = parseOrderQuery(rawQuery)
+
+  return db.query.orders.findMany({
+    where: q
+      ? or(
+          sql`lower(${orders.id}) LIKE ${`${q.idPrefix}%`} ESCAPE '\\'`,
+          sql`${orders.buyerEmail} LIKE ${`%${q.contains}%`} ESCAPE '\\'`,
+          sql`${orders.buyerName} LIKE ${`%${q.contains}%`} ESCAPE '\\'`
+        )
+      : undefined,
+    orderBy: [desc(orders.createdAt)],
+    limit: ORDER_SEARCH_LIMIT,
+    with: { campaign: { with: { org: true } } },
+  })
+}
+
+export type AdminOrderSummary = Awaited<ReturnType<typeof searchOrders>>[number]
 
 export async function getPlatformStaff() {
   return db.query.user.findMany({

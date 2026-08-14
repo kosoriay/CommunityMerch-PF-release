@@ -3,6 +3,9 @@ import { getPrintfulVariantId, submitPrintfulOrder } from "@/lib/providers/print
 import { sendOrderConfirmationEmail } from "@/lib/email"
 import { getCatalogItem } from "@/lib/catalog-db"
 import { PRINTFUL_DEFAULT_COLOR } from "@/lib/printful-catalog"
+import { getOrCreateConfig } from "@/lib/platform-config"
+import { buildPackingSlip } from "@/lib/packing-slip"
+import type { PrintfulPackingSlip } from "@/lib/providers/printful"
 
 // Main entry point called from the Stripe webhook.
 // Errors are caught and recorded — does NOT throw so the webhook stays 200.
@@ -75,6 +78,24 @@ export async function submitFulfillment(orderId: string): Promise<void> {
     const printfulItems = resolvedItems.map((r) => r.printfulItem)
     const catalogNames = resolvedItems.map((r) => r.catalogName)
 
+    // Platform config drives the packing slip and the support footer in the
+    // confirmation email. Best-effort: a config read failure must never block a
+    // paid order, so fall back to the Printful store defaults rather than throwing.
+    let config: Awaited<ReturnType<typeof getOrCreateConfig>> | null = null
+    let packingSlip: PrintfulPackingSlip | undefined
+    try {
+      config = await getOrCreateConfig()
+      packingSlip = buildPackingSlip({
+        platformName: config.platformName,
+        supportEmail: config.supportEmail,
+        logoUrl: config.logoUrl,
+        orgName: order.campaign.org.name,
+        campaignTitle: order.campaign.title,
+      })
+    } catch (err) {
+      console.warn(`[fulfillment] packing slip unavailable for ${orderId}`, err)
+    }
+
     // Submit to Printful (external_id = orderId for deduplication)
     const printfulOrder = await submitPrintfulOrder(
       orderId,
@@ -87,7 +108,8 @@ export async function submitFulfillment(orderId: string): Promise<void> {
         zip: shipping.postal_code,
         country_code: shipping.country ?? "US",
       },
-      printfulItems
+      printfulItems,
+      packingSlip
     )
 
     // Update order status
@@ -108,6 +130,8 @@ export async function submitFulfillment(orderId: string): Promise<void> {
         })),
         totalAmountCents: order.totalAmountCents,
         shippingAddress: shipping,
+        platformName: config?.platformName ?? "the platform",
+        supportEmail: config?.supportEmail ?? null,
       })
     }
 

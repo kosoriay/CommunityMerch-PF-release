@@ -21,14 +21,15 @@ By creating an account, joining an organization, creating a campaign, or purchas
 ## 4. Fundraising Campaigns
 
 - Campaigns are created and operated by independent organizations, not by the Operator. Each organization is responsible for its campaign content, pricing, and use of funds.
-- Campaign proceeds, minus platform and processing fees, are paid to the organization's own bank account through Stripe Connect. The Operator does not hold organization funds.
+- Payment for an order is processed by the Operator through Stripe. The Operator pays the production and shipping costs and the payment processing fees, retains its platform fee, and transfers the remaining campaign proceeds to the organization's own bank account through Stripe Connect. The Operator does not hold organization proceeds beyond the time needed to settle and transfer them.
 - Purchasing from a campaign supports the organization running it. The Operator is not responsible for how an organization uses its proceeds.
 
 ## 5. Purchases, Shipping, and Returns
 
 - Prices, shipping costs, and estimated delivery times are shown at checkout. Payment is processed by Stripe.
 - All merchandise is printed on demand after your order is placed. Because each item is made to order, all sales are final and orders cannot be cancelled once submitted for production.
-- If your item arrives damaged, defective, or misprinted, contact {{SUPPORT_EMAIL}} within 30 days of delivery and we will arrange a replacement or refund.
+- If your item arrives damaged, defective, or misprinted, contact {{SUPPORT_EMAIL}} within 30 days of delivery. Please include your order number and a photograph of the item. Our standard remedy is a free replacement; where a replacement is not possible we will issue a refund. Any refund is limited to the amount you actually paid for the affected item, including its share of shipping.
+- Do not ship an item back to the printing facility shown on the parcel. Returns sent without arranging a replacement or refund with us first cannot be identified or credited.
 - Delivery estimates are not guaranteed. Shipping is currently available to addresses in the United States only.
 
 ## 6. Designs and User Content
