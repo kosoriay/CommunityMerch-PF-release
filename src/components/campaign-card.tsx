@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { formatDate } from "@/lib/format"
+import { formatCents, formatDate } from "@/lib/format"
+import { barWidthPercent } from "@/lib/campaign-progress"
 
 type Status = "draft" | "active" | "closed"
 
@@ -19,9 +20,15 @@ type Props = {
     deadline: Date | null
     orgId: string
   }
+  /** Omitted for drafts, which have no results rather than zero results. */
+  progress?: {
+    netRaisedCents: number
+    percentOfGoal: number | null
+    itemsSold: number
+  }
 }
 
-export function CampaignCard({ campaign }: Props) {
+export function CampaignCard({ campaign, progress }: Props) {
   const status = campaign.status as Status
   const href =
     status === "draft"
@@ -42,6 +49,30 @@ export function CampaignCard({ campaign }: Props) {
         <p className="text-xs text-muted-foreground">/{campaign.slug}</p>
       </CardHeader>
       <CardContent className="pt-0">
+        {/* A draft has not opened for orders — reporting $0 raised would read
+            as failure rather than as not-started. */}
+        {status === "draft" ? (
+          <p className="text-xs text-muted-foreground mb-3">Not launched yet</p>
+        ) : progress ? (
+          <div className="mb-3 space-y-1">
+            {progress.percentOfGoal !== null && (
+              <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#378ADD] rounded-full"
+                  style={{ width: `${barWidthPercent(progress.percentOfGoal)}%` }}
+                />
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">
+                {formatCents(progress.netRaisedCents)}
+              </span>{" "}
+              raised
+              {progress.percentOfGoal !== null && ` · ${progress.percentOfGoal}% of goal`}
+              {` · ${progress.itemsSold} sold`}
+            </p>
+          </div>
+        ) : null}
         {campaign.deadline && (
           <p className="text-xs text-muted-foreground mb-3">
             Deadline: {formatDate(campaign.deadline)}
