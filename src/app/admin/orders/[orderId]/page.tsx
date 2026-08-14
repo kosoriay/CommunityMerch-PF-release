@@ -11,6 +11,7 @@ import { isRefundable } from "@/lib/order-status"
 import { orderRefundBreakdown } from "@/lib/refunds"
 import { OrderStatusBadge } from "../../_components/OrderStatusBadge"
 import { RefundPanel } from "./_refund-panel"
+import { RecoveryPanel } from "./_recovery-panel"
 
 export const dynamic = "force-dynamic"
 
@@ -69,16 +70,25 @@ export default async function AdminOrderDetailPage({
         </div>
       </div>
 
-      {order.fulfillmentError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="font-medium text-red-800 text-sm">Fulfillment failed</p>
-          <p className="text-sm text-red-700 mt-1">{order.fulfillmentError}</p>
-          <p className="text-xs text-red-600 mt-2">
-            Attempts: {order.fulfillmentAttempts}. This order has not reached Printful — the
-            buyer has paid and is waiting.
-          </p>
-        </div>
-      )}
+      {order.fulfillmentError &&
+        (isPlatformAdmin ? (
+          <RecoveryPanel
+            orderId={order.id}
+            error={order.fulfillmentError}
+            attempts={order.fulfillmentAttempts}
+            buyerName={order.buyerName}
+            address={shipping}
+          />
+        ) : (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+            <p className="font-medium text-red-800 text-sm">Not sent to production</p>
+            <p className="text-sm text-red-700 mt-1">{order.fulfillmentError}</p>
+            <p className="text-xs text-red-600 mt-2">
+              Attempts: {order.fulfillmentAttempts}. The buyer has paid and is waiting. A
+              platform admin can retry this.
+            </p>
+          </div>
+        ))}
 
       <Section title="Buyer">
         <Row label="Name" value={order.buyerName ?? "—"} />

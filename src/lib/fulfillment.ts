@@ -1,4 +1,5 @@
 import { getOrder, markOrderFulfilled, markFulfillmentFailed } from "@/lib/orders"
+import { alertFulfillmentFailure } from "@/lib/fulfillment-alerts"
 import { getPrintfulVariantId, submitPrintfulOrder } from "@/lib/providers/printful"
 import { sendOrderConfirmationEmail } from "@/lib/email"
 import { getCatalogItem } from "@/lib/catalog-db"
@@ -9,7 +10,31 @@ import type { PrintfulPackingSlip } from "@/lib/providers/printful"
 
 // Main entry point called from the Stripe webhook.
 // Errors are caught and recorded — does NOT throw so the webhook stays 200.
-export async function submitFulfillment(orderId: string): Promise<void> {
+export async function submitFulfillment(
+  orderId: string,
+  /** Set false on an operator-triggered retry — they are already watching. */
+  options: { notifyOnFailure?: boolean } = {}
+): Promise<void> {
+  const notifyOnFailure = options.notifyOnFailure ?? true
+
+  // Record the failure and make sure a human hears about it. A paid order that
+  // never reaches production is invisible otherwise.
+  const fail = async (
+    message: string,
+    context?: { campaignTitle: string; orgName: string; buyerEmail: string | null; attempts: number }
+  ) => {
+    await markFulfillmentFailed(orderId, message)
+    if (!notifyOnFailure || !context) return
+    await alertFulfillmentFailure({
+      orderId,
+      campaignTitle: context.campaignTitle,
+      orgName: context.orgName,
+      buyerEmail: context.buyerEmail,
+      error: message,
+      attempts: context.attempts + 1,
+    })
+  }
+
   try {
     const order = await getOrder(orderId)
 
@@ -27,10 +52,12 @@ export async function submitFulfillment(orderId: string): Promise<void> {
     // Require a design file — block fulfillment if missing
     const designUrl = order.campaign.design?.designFileUrl ?? null
     if (!designUrl) {
-      await markFulfillmentFailed(
-        orderId,
-        "No design file found — manual fulfillment required"
-      )
+      await fail("No design file found — manual fulfillment required", {
+        campaignTitle: order.campaign.title,
+        orgName: order.campaign.org.name,
+        buyerEmail: order.buyerEmail,
+        attempts: order.fulfillmentAttempts,
+      })
       console.warn(`[fulfillment] blocked — no design file for order ${orderId}`)
       return
     }
@@ -48,7 +75,12 @@ export async function submitFulfillment(orderId: string): Promise<void> {
       : null
 
     if (!shipping?.line1 || !shipping.city || !shipping.state || !shipping.postal_code) {
-      await markFulfillmentFailed(orderId, "Incomplete shipping address")
+      await fail("Incomplete shipping address", {
+        campaignTitle: order.campaign.title,
+        orgName: order.campaign.org.name,
+        buyerEmail: order.buyerEmail,
+        attempts: order.fulfillmentAttempts,
+      })
       return
     }
 
@@ -139,6 +171,19 @@ export async function submitFulfillment(orderId: string): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown fulfillment error"
     console.error(`[fulfillment] failed: order=${orderId}`, message)
-    await markFulfillmentFailed(orderId, message)
+    // Re-read rather than reuse `order`: the throw may have come from before it
+    // was loaded, and the alert needs context the caller does not have.
+    const failed = await getOrder(orderId).catch(() => null)
+    await fail(
+      message,
+      failed
+        ? {
+            campaignTitle: failed.campaign.title,
+            orgName: failed.campaign.org.name,
+            buyerEmail: failed.buyerEmail,
+            attempts: failed.fulfillmentAttempts,
+          }
+        : undefined
+    )
   }
 }

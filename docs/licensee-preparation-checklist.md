@@ -475,6 +475,11 @@ CLOUDFLARE_R2_BUCKET_NAME=ここに入力（例: schoolmerch-uploads）
 CLOUDFLARE_R2_PUBLIC_URL=https://pub-ここに入力.r2.dev
 
 # ─── Printful（印刷・発送）───────────────────────────────────────────────
+# developers.printful.com → Private tokens → Create new token で発行
+# （Public app ではなく Private token を選ぶこと）
+# スコープ: orders(管理) / store products(閲覧) / store files(管理) の3つ
+# 有効期限は最大2年。失効すると注文が発送されなくなるため要カレンダー登録
+# （ダッシュボード Settings → API の旧「APIキー」は失効済み・使用不可）
 PRINTFUL_API_KEY=ここに入力
 # 以下のコマンドで生成: openssl rand -hex 20
 PRINTFUL_WEBHOOK_SECRET=ここに入力（ランダム文字列）

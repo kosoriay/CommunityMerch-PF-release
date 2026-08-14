@@ -1,6 +1,6 @@
 import { db } from "@/lib/db/client"
 import { orders, orderItems } from "@/lib/db/schema"
-import { eq } from "drizzle-orm"
+import { eq, and, isNotNull, desc } from "drizzle-orm"
 
 export type CartItem = {
   campaignProductId: string
@@ -93,6 +93,9 @@ export async function markOrderFulfilled(
     .set({
       status: "fulfilled",
       printfulOrderId: String(printfulOrderId),
+      // Clear the failure: without this a successful retry leaves the order
+      // on the needs-attention list forever.
+      fulfillmentError: null,
       updatedAt: new Date(),
     })
     .where(eq(orders.id, orderId))
@@ -130,6 +133,49 @@ export async function markFulfillmentFailed(
     .set({
       fulfillmentAttempts: (current?.fulfillmentAttempts ?? 0) + 1,
       fulfillmentError: errorMessage,
+      updatedAt: new Date(),
+    })
+    .where(eq(orders.id, orderId))
+}
+
+/**
+ * Orders the buyer has paid for that never reached the print provider.
+ *
+ * These are the worst state the system can be in: money is captured, the
+ * organization has been credited, and nothing will ever ship unless someone
+ * intervenes. Nothing surfaced them until now — they were only visible in
+ * function logs.
+ */
+export async function getFailedFulfillmentOrders() {
+  return db.query.orders.findMany({
+    where: and(eq(orders.status, "paid"), isNotNull(orders.fulfillmentError)),
+    orderBy: [desc(orders.createdAt)],
+    with: { campaign: { with: { org: true } } },
+  })
+}
+
+export type FailedFulfillmentOrder = Awaited<
+  ReturnType<typeof getFailedFulfillmentOrders>
+>[number]
+
+/** Correct a bad recipient address before retrying — the most common fixable cause. */
+export async function updateShippingAddress(
+  orderId: string,
+  address: {
+    line1: string
+    line2?: string
+    city: string
+    state: string
+    postal_code: string
+    country?: string
+  },
+  buyerName?: string
+): Promise<void> {
+  await db
+    .update(orders)
+    .set({
+      shippingAddressJson: JSON.stringify({ ...address, country: address.country ?? "US" }),
+      ...(buyerName ? { buyerName } : {}),
       updatedAt: new Date(),
     })
     .where(eq(orders.id, orderId))

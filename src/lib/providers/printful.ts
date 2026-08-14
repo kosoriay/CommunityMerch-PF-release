@@ -5,6 +5,17 @@ if (!process.env.PRINTFUL_API_KEY) throw new Error("PRINTFUL_API_KEY is required
 const BASE_URL = "https://api.printful.com"
 const AUTH = `Bearer ${process.env.PRINTFUL_API_KEY}`
 
+// PRINTFUL_API_KEY is a Developer Portal *private* token, and Printful caps
+// those at two years — there is no perpetual option. When one lapses every
+// call here 401s, so orders are paid for and never shipped. A 401 from this
+// module almost always means an expired token rather than a malformed one:
+// legacy keys and current tokens are the same length and indistinguishable by
+// inspection. See docs/2-setup/00-START-HERE.md for rotation.
+//
+// Print file URLs must be externally hosted. Printful rejects images served
+// from its own files.cdn.printful.com with "file URL is not a valid URL",
+// which is why designs are passed as R2 public URLs.
+
 type PrintfulVariantResult = {
   id: number
   size: string

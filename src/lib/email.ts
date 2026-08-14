@@ -185,3 +185,52 @@ export async function sendPayoutAccountReplacedEmail(
     html,
   })
 }
+
+/**
+ * Operator alert: a paid order never reached the print provider.
+ *
+ * Deliberately blunt about the consequence. This is not an FYI — a buyer has
+ * been charged for something that will never ship until someone acts.
+ */
+export async function sendFulfillmentFailureEmail(
+  to: string[],
+  data: {
+    orderId: string
+    campaignTitle: string
+    orgName: string
+    buyerEmail: string | null
+    error: string
+    attempts: number
+    orderUrl: string | null
+    platformName: string
+  }
+): Promise<void> {
+  const orderRef = data.orderId.slice(0, 8).toUpperCase()
+  const html = `
+    <h2>Order ${orderRef} was paid but not sent to production</h2>
+    <p>The buyer has been charged and nothing will ship until this is resolved.</p>
+    <p>
+      <strong>Campaign:</strong> ${escapeHtml(data.campaignTitle)}<br>
+      <strong>Organization:</strong> ${escapeHtml(data.orgName)}<br>
+      <strong>Buyer:</strong> ${escapeHtml(data.buyerEmail ?? "unknown")}<br>
+      <strong>Attempts:</strong> ${data.attempts}
+    </p>
+    <p><strong>Error:</strong><br><code>${escapeHtml(data.error)}</code></p>
+    ${data.orderUrl ? `<p><a href="${escapeHtml(data.orderUrl)}">Open the order to fix and retry →</a></p>` : ""}
+    <p style="font-size:12px;color:#666">If several orders fail at once with an
+    authorization error, check whether the Printful API token has expired — they
+    last at most two years and expiry stops every order at once.</p>
+  `
+
+  if (!resend) {
+    console.log(`[email:fulfillment-failure] to=${to.join(",")} order=${data.orderId} error=${data.error}`)
+    return
+  }
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `⚠️ Order ${orderRef} paid but not fulfilled — ${data.platformName}`,
+    html,
+  })
+}

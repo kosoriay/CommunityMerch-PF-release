@@ -4,15 +4,18 @@ import { getPlatformStats, getRecentOrgs, formatRevenueDollars } from "@/lib/adm
 import { listDiscountCodes } from "@/lib/discount-codes"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { getFailedFulfillmentOrders } from "@/lib/orders"
+import { NeedsAttention } from "../_components/NeedsAttention"
 
 export default async function AdminDashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() })
   const isAdmin = session?.user.platformRole === "platform_admin"
 
-  const [stats, recentOrgs, allCodes] = await Promise.all([
+  const [stats, recentOrgs, allCodes, failedOrders] = await Promise.all([
     getPlatformStats(),
     getRecentOrgs(5),
     isAdmin ? listDiscountCodes() : Promise.resolve([]),
+    getFailedFulfillmentOrders(),
   ])
 
   const activeCodes = allCodes.filter((c) => c.isActive)
@@ -20,6 +23,10 @@ export default async function AdminDashboardPage() {
   return (
     <div className="space-y-6 md:space-y-8">
       <h1 className="text-2xl font-bold">Platform Overview</h1>
+
+      {/* Above the statistics: a paid order that never shipped outranks any
+          number on this page. */}
+      <NeedsAttention orders={failedOrders} />
 
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
