@@ -4,6 +4,7 @@ const STATUS_STYLES: Record<string, string> = {
   fulfilled: "bg-indigo-100 text-indigo-700",
   shipped: "bg-amber-100 text-amber-700",
   delivered: "bg-green-100 text-green-700",
+  refunded: "bg-red-100 text-red-700",
 }
 
 export function OrderStatusBadge({ status }: { status: string }) {

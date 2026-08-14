@@ -1,6 +1,7 @@
-import { count, ne, sum } from "drizzle-orm"
+import { count, ne, sum, inArray } from "drizzle-orm"
 import { db } from "@/lib/db/client"
 import { campaigns, orders, organizations } from "@/lib/db/schema"
+import { REVENUE_ORDER_STATUSES } from "@/lib/order-status"
 
 export type LandingStats = {
   totalRaisedCents: number
@@ -8,14 +9,14 @@ export type LandingStats = {
   organizations: number
 }
 
-// Live aggregates for the landing page. Order statuses run
-// pending → paid → fulfilled → shipped → delivered; everything past
-// "pending" is real money. Campaigns count once they leave "draft".
+// Live aggregates for the landing page. Only statuses that represent money the
+// platform kept are counted — refunded orders were given back and must not be
+// advertised as funds raised. Campaigns count once they leave "draft".
 export async function getLandingStats(): Promise<LandingStats> {
   const [{ raised }] = await db
     .select({ raised: sum(orders.totalAmountCents) })
     .from(orders)
-    .where(ne(orders.status, "pending"))
+    .where(inArray(orders.status, [...REVENUE_ORDER_STATUSES]))
   const [{ launched }] = await db
     .select({ launched: count() })
     .from(campaigns)

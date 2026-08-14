@@ -1,11 +1,16 @@
 import Link from "next/link"
+import { headers } from "next/headers"
 import { notFound } from "next/navigation"
+import { auth } from "@/lib/auth"
 import { getOrder } from "@/lib/orders"
 import { getCatalogItem } from "@/lib/catalog-db"
 import { shortOrderId } from "@/lib/order-search"
 import { formatCents } from "@/lib/format"
 import { toPrintfulExternalId } from "@/lib/printful-ids"
+import { isRefundable } from "@/lib/order-status"
+import { orderRefundBreakdown } from "@/lib/refunds"
 import { OrderStatusBadge } from "../../_components/OrderStatusBadge"
+import { RefundPanel } from "./_refund-panel"
 
 export const dynamic = "force-dynamic"
 
@@ -24,8 +29,15 @@ export default async function AdminOrderDetailPage({
   params: Promise<{ orderId: string }>
 }) {
   const { orderId } = await params
-  const order = await getOrder(orderId)
+  const [order, session] = await Promise.all([
+    getOrder(orderId),
+    auth.api.getSession({ headers: await headers() }),
+  ])
   if (!order) notFound()
+
+  // Moving money is platform_admin only; platform_staff is read-only support.
+  const isPlatformAdmin = session?.user.platformRole === "platform_admin"
+  const breakdown = orderRefundBreakdown(order)
 
   const items = await Promise.all(
     order.items.map(async (item) => ({
@@ -191,16 +203,44 @@ export default async function AdminOrderDetailPage({
         />
       </Section>
 
-      <div className="rounded-lg border bg-slate-50 p-4 text-xs text-muted-foreground">
-        <p className="font-medium text-foreground mb-1">Resolving a problem</p>
-        <p>
-          For a misprinted, damaged, or defective item reported within 30 days of delivery,
-          request a free reprint from Printful first — it costs neither the platform nor the
-          organization anything. A refund does not return the production cost or the payment
-          processing fee, and there is no refund action here yet: see{" "}
-          <span className="font-mono">openspec/changes/add-order-refunds</span>.
-        </p>
-      </div>
+      {order.status === "refunded" ? (
+        <Section title="Refund">
+          <Row
+            label="Refunded"
+            value={order.refundedAt ? new Date(order.refundedAt).toLocaleString() : "—"}
+          />
+          <Row label="Reason" value={order.refundReason ?? "—"} />
+          <Row
+            label="Stripe refund"
+            value={
+              order.stripeRefundId ? (
+                <span className="font-mono text-xs">{order.stripeRefundId}</span>
+              ) : (
+                "—"
+              )
+            }
+          />
+          <Row
+            label="Transfer reversal"
+            value={
+              order.transferReversalId ? (
+                <span className="font-mono text-xs">{order.transferReversalId}</span>
+              ) : (
+                "—"
+              )
+            }
+          />
+        </Section>
+      ) : isRefundable(order.status) && isPlatformAdmin ? (
+        <RefundPanel
+          orderId={order.id}
+          printfulOrderId={order.printfulOrderId ? Number(order.printfulOrderId) : null}
+          buyerReceives={formatCents(breakdown.buyerReceivesCents)}
+          organizationReturns={formatCents(breakdown.organizationReturnsCents)}
+          platformAbsorbs={formatCents(breakdown.platformAbsorbsCents)}
+          orgName={order.campaign.org.name}
+        />
+      ) : null}
     </div>
   )
 }
