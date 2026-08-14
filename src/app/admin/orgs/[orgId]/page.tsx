@@ -7,7 +7,7 @@ import { campaigns, orgMembers, discountCodes } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import {
   suspendOrgAction, unsuspendOrgAction, toggleInternalAction,
-  applyCodeFormAction, removeCodeAction
+  applyCodeFormAction, removeCodeAction, reopenOrgAction
 } from "./_actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -30,6 +30,7 @@ export default async function AdminOrgDetailPage({ params }: { params: Promise<{
     : null
 
   const isSuspended = !!org.suspendedAt
+  const isClosed = !!org.closedAt
 
   return (
     <div className="space-y-6">
@@ -41,6 +42,7 @@ export default async function AdminOrgDetailPage({ params }: { params: Promise<{
         <div className="flex gap-2 text-xs">
           {org.isInternal && <span className="bg-purple-100 text-purple-700 px-2 py-1 rounded">Internal</span>}
           {isSuspended && <span className="bg-red-100 text-red-700 px-2 py-1 rounded">Suspended</span>}
+          {isClosed && <span className="bg-slate-200 text-slate-700 px-2 py-1 rounded">Closed by organization</span>}
         </div>
       </div>
 
@@ -63,6 +65,13 @@ export default async function AdminOrgDetailPage({ params }: { params: Promise<{
                 {org.isInternal ? "Remove Internal Flag" : "Mark as Internal"}
               </Button>
             </form>
+            {/* Closing is self-service for the organization; reopening is not,
+                so they have to ask rather than toggle their own retirement. */}
+            {isClosed && (
+              <form action={reopenOrgAction.bind(null, orgId)}>
+                <Button type="submit" variant="outline">Reopen Organization</Button>
+              </form>
+            )}
           </div>
 
           <div className="space-y-2">

@@ -84,7 +84,11 @@ export const organizations = sqliteTable("organizations", {
   discountCodeId: text("discount_code_id"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  // Suspension is a platform action taken against an organization; closing is
+  // the organization retiring itself. Kept separate so an organization cannot
+  // clear a suspension by closing and reopening.
   suspendedAt: integer("suspended_at", { mode: "timestamp" }),
+  closedAt: integer("closed_at", { mode: "timestamp" }),
 }, (t) => [
   index("orgs_discount_code_id_idx").on(t.discountCodeId),
 ])

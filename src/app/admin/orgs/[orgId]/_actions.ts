@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { auth } from "@/lib/auth"
 import { suspendOrg, unsuspendOrg, setInternalOrg } from "@/lib/admin"
+import { reopenOrg } from "@/lib/org-lifecycle"
 import { applyDiscountCodeToOrg, removeDiscountCodeFromOrg } from "@/lib/discount-codes"
 
 async function requirePlatformAdmin() {
@@ -59,4 +60,16 @@ export async function removeCodeAction(orgId: string): Promise<void> {
   await requirePlatformAdmin()
   await removeDiscountCodeFromOrg(orgId)
   revalidatePath(`/admin/orgs/${orgId}`)
+}
+
+/**
+ * Reopen an organization that closed itself. Platform admin only — closing is
+ * self-service but reopening is not, so an organization has to ask rather than
+ * toggling its own retirement.
+ */
+export async function reopenOrgAction(orgId: string): Promise<void> {
+  await requirePlatformAdmin()
+  await reopenOrg(orgId)
+  revalidatePath(`/admin/orgs/${orgId}`)
+  revalidatePath("/admin/orgs")
 }

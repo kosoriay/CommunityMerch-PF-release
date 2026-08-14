@@ -161,6 +161,9 @@ export async function publishCampaign(campaignId: string): Promise<{ error?: str
   })
   if (!campaign) return { error: "Campaign not found" }
   if (campaign.org.suspendedAt) return { error: "Your account has been suspended. Contact support." }
+  if (campaign.org.closedAt) {
+    return { error: "This organization is closed. Contact support to reopen it before publishing." }
+  }
 
   let discountCode = await getActiveCodeForOrg(campaign.orgId)
 

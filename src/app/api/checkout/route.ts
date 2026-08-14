@@ -48,6 +48,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "This campaign is currently unavailable" }, { status: 403 })
   }
 
+  // A closed organization has retired. Its records stay, but it stops trading.
+  if (org.closedAt) {
+    return NextResponse.json(
+      { error: "This organization is no longer accepting orders" },
+      { status: 403 }
+    )
+  }
+
   // Use the fee rate snapshot locked at campaign publish time (basis points → decimal)
   const feeRate = campaign.platformFeeRate / 10000
 

@@ -34,6 +34,19 @@ export default async function PublicCampaignPage({ params }: Props) {
     catalogItems.map((item) => [item.id, item])
   )
 
+  if (campaign.org?.closedAt) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-2">
+          <h1 className="text-2xl font-bold">Campaign Closed</h1>
+          <p className="text-muted-foreground">
+            {campaign.org.name} is no longer running campaigns.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   if (campaign.org?.suspendedAt) {
     return (
       <div className="min-h-screen flex items-center justify-center">
