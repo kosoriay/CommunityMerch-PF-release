@@ -153,7 +153,10 @@ export default async function OrderConfirmationPage({ params, searchParams }: Pr
           )}
           <p className="text-xs text-muted-foreground">
             Please don&apos;t ship returns to the address printed on the parcel — that facility
-            can&apos;t match a package to your order.
+            can&apos;t match a package to your order.{" "}
+            <Link href="/help" className="text-[#378ADD] hover:underline">
+              See common questions
+            </Link>
           </p>
         </div>
 

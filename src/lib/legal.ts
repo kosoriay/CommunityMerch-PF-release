@@ -6,7 +6,7 @@ export type LegalBlock =
   | { type: "h1" | "h2" | "h3" | "p"; text: string }
   | { type: "ul"; items: string[] }
 
-export type LegalDocName = "terms" | "privacy"
+export type LegalDocName = "terms" | "privacy" | "help"
 
 // Legal documents live in content/*.md so licensees can edit them on GitHub
 // without touching code. {{PLATFORM_NAME}} / {{SUPPORT_EMAIL}} are substituted

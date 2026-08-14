@@ -137,6 +137,7 @@ export default async function LandingPage() {
       <ClosingCta ctaLabel={content.hero.ctaLabel} primaryColor={config.primaryColor} />
 
       <footer className="flex gap-4 text-xs text-gray-400">
+        <Link href="/help" className="underline hover:text-gray-600">Help</Link>
         <Link href="/terms" className="underline hover:text-gray-600">Terms of Service</Link>
         <Link href="/privacy" className="underline hover:text-gray-600">Privacy Policy</Link>
       </footer>

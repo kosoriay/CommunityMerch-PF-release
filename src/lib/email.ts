@@ -44,11 +44,15 @@ function supportHtml(data: {
   const contact = data.supportEmail
     ? `email <a href="mailto:${escapeHtml(data.supportEmail)}?subject=Order%20${orderRef}">${escapeHtml(data.supportEmail)}</a>`
     : `contact ${escapeHtml(data.platformName)}`
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  const helpLink = appUrl
+    ? ` <a href="${escapeHtml(appUrl)}/help">Common questions</a>.`
+    : ""
   return `
     <hr>
     <p><strong>Need help with this order?</strong><br>
     Please ${contact} and quote order <strong>${orderRef}</strong>.
-    If an item arrives damaged or misprinted, attach a photo and we'll send a replacement.</p>
+    If an item arrives damaged or misprinted, attach a photo and we'll send a replacement.${helpLink}</p>
     <p style="font-size:12px;color:#666">Please don't ship returns to the address printed on the
     parcel — that facility can't match a package to your order.</p>
   `
