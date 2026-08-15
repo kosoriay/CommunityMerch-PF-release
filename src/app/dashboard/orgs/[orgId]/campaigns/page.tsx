@@ -6,6 +6,7 @@ import { requireOrgAccess } from "@/lib/middleware/require-org-access"
 import { getCampaignsByOrg } from "@/lib/campaigns"
 import { buttonVariants } from "@/components/ui/button"
 import { CampaignCard } from "@/components/campaign-card"
+import { getCampaignProgress } from "@/lib/campaign-progress"
 
 type Props = { params: Promise<{ orgId: string }> }
 
@@ -21,6 +22,13 @@ export default async function CampaignsPage({ params }: Props) {
   }
 
   const allCampaigns = await getCampaignsByOrg(orgId)
+  const progressById = Object.fromEntries(
+    await Promise.all(
+      allCampaigns
+        .filter((c) => c.status !== "draft")
+        .map(async (c) => [c.id, await getCampaignProgress(c.id)] as const)
+    )
+  )
   const active = allCampaigns.filter((c) => c.status === "active")
   const drafts = allCampaigns.filter((c) => c.status === "draft")
   const closed = allCampaigns.filter((c) => c.status === "closed")
@@ -54,7 +62,7 @@ export default async function CampaignsPage({ params }: Props) {
               <h3 className="text-sm font-medium text-muted-foreground mb-3">Active</h3>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {active.map((c) => (
-                  <CampaignCard key={c.id} campaign={c} />
+                  <CampaignCard key={c.id} campaign={c} progress={progressById[c.id] ?? undefined} />
                 ))}
               </div>
             </section>
@@ -64,7 +72,7 @@ export default async function CampaignsPage({ params }: Props) {
               <h3 className="text-sm font-medium text-muted-foreground mb-3">Drafts</h3>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {drafts.map((c) => (
-                  <CampaignCard key={c.id} campaign={c} />
+                  <CampaignCard key={c.id} campaign={c} progress={progressById[c.id] ?? undefined} />
                 ))}
               </div>
             </section>
@@ -74,7 +82,7 @@ export default async function CampaignsPage({ params }: Props) {
               <h3 className="text-sm font-medium text-muted-foreground mb-3">Closed</h3>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {closed.map((c) => (
-                  <CampaignCard key={c.id} campaign={c} />
+                  <CampaignCard key={c.id} campaign={c} progress={progressById[c.id] ?? undefined} />
                 ))}
               </div>
             </section>

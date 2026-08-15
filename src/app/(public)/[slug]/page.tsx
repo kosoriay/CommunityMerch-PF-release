@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 import { headers } from "next/headers"
 import { getCampaignBySlug } from "@/lib/campaigns"
-import { formatCents, formatDate, daysUntil } from "@/lib/format"
+import { formatDate, daysUntil } from "@/lib/format"
 import { getCatalog } from "@/lib/catalog-db"
 import type { CatalogItem } from "@/lib/catalog-db"
 import { CampaignCart } from "./_cart"
@@ -11,6 +11,8 @@ import { orgMembers } from "@/lib/db/schema"
 import { and, eq } from "drizzle-orm"
 import { AdminBanner } from "./_admin-banner"
 import { getOrCreateConfig } from "@/lib/platform-config"
+import { getCampaignProgress, progressVisibility } from "@/lib/campaign-progress"
+import { CampaignProgressPanel } from "@/components/campaign/progress-panel"
 
 export const dynamic = "force-dynamic"
 
@@ -25,10 +27,25 @@ export default async function PublicCampaignPage({ params }: Props) {
 
   if (!campaign) notFound()
 
+  const progress = (await getCampaignProgress(campaign.id))!
+
   const catalogItems = await getCatalog()
   const catalogMap: Record<string, CatalogItem> = Object.fromEntries(
     catalogItems.map((item) => [item.id, item])
   )
+
+  if (campaign.org?.closedAt) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-2">
+          <h1 className="text-2xl font-bold">Campaign Closed</h1>
+          <p className="text-muted-foreground">
+            {campaign.org.name} is no longer running campaigns.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   if (campaign.org?.suspendedAt) {
     return (
@@ -90,35 +107,26 @@ export default async function PublicCampaignPage({ params }: Props) {
           </div>
         )}
 
-        {/* Stats */}
-        {(daysLeft !== null || campaign.goalAmount) && (
-          <div className="rounded-lg border bg-white p-4 space-y-2">
-            {campaign.goalAmount && (
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">Fundraising goal</span>
-                  {campaign.amountDisplayMode === "show_amount" && (
-                    <span className="font-medium">{formatCents(campaign.goalAmount)}</span>
-                  )}
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full bg-[#378ADD] rounded-full w-0" />
-                </div>
-              </div>
-            )}
-            {daysLeft !== null && (
-              <p className="text-sm">
-                {isExpired ? (
-                  <span className="text-red-600 font-medium">Campaign ended</span>
-                ) : (
-                  <>
-                    <span className="font-semibold text-[#2E4057]">{daysLeft} days</span>
-                    <span className="text-muted-foreground">
-                      {" "}left · Deadline {formatDate(campaign.deadline!)}
-                    </span>
-                  </>
-                )}
+        {/* Progress — real order data. A buyer must never be shown a bar that
+            does not correspond to what has actually sold. */}
+        {(daysLeft !== null || campaign.goalAmount || progress.orderCount > 0) && (
+          <div className="space-y-2">
+            <CampaignProgressPanel
+              netRaisedCents={progress.netRaisedCents}
+              goalCents={progress.goalCents}
+              percentOfGoal={progress.percentOfGoal}
+              itemsSold={progress.itemsSold}
+              supporterCount={progress.supporterCount}
+              daysRemaining={progress.daysRemaining}
+              visibility={progressVisibility("public", campaign.amountDisplayMode)}
+            />
+            {daysLeft !== null && !isExpired && (
+              <p className="text-xs text-muted-foreground text-center">
+                Deadline {formatDate(campaign.deadline!)}
               </p>
+            )}
+            {isExpired && (
+              <p className="text-sm text-red-600 font-medium text-center">Campaign ended</p>
             )}
           </div>
         )}

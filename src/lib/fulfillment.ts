@@ -1,12 +1,40 @@
 import { getOrder, markOrderFulfilled, markFulfillmentFailed } from "@/lib/orders"
+import { alertFulfillmentFailure } from "@/lib/fulfillment-alerts"
 import { getPrintfulVariantId, submitPrintfulOrder } from "@/lib/providers/printful"
 import { sendOrderConfirmationEmail } from "@/lib/email"
 import { getCatalogItem } from "@/lib/catalog-db"
 import { PRINTFUL_DEFAULT_COLOR } from "@/lib/printful-catalog"
+import { getOrCreateConfig } from "@/lib/platform-config"
+import { buildPackingSlip } from "@/lib/packing-slip"
+import type { PrintfulPackingSlip } from "@/lib/providers/printful"
 
 // Main entry point called from the Stripe webhook.
 // Errors are caught and recorded — does NOT throw so the webhook stays 200.
-export async function submitFulfillment(orderId: string): Promise<void> {
+export async function submitFulfillment(
+  orderId: string,
+  /** Set false on an operator-triggered retry — they are already watching. */
+  options: { notifyOnFailure?: boolean } = {}
+): Promise<void> {
+  const notifyOnFailure = options.notifyOnFailure ?? true
+
+  // Record the failure and make sure a human hears about it. A paid order that
+  // never reaches production is invisible otherwise.
+  const fail = async (
+    message: string,
+    context?: { campaignTitle: string; orgName: string; buyerEmail: string | null; attempts: number }
+  ) => {
+    await markFulfillmentFailed(orderId, message)
+    if (!notifyOnFailure || !context) return
+    await alertFulfillmentFailure({
+      orderId,
+      campaignTitle: context.campaignTitle,
+      orgName: context.orgName,
+      buyerEmail: context.buyerEmail,
+      error: message,
+      attempts: context.attempts + 1,
+    })
+  }
+
   try {
     const order = await getOrder(orderId)
 
@@ -24,10 +52,12 @@ export async function submitFulfillment(orderId: string): Promise<void> {
     // Require a design file — block fulfillment if missing
     const designUrl = order.campaign.design?.designFileUrl ?? null
     if (!designUrl) {
-      await markFulfillmentFailed(
-        orderId,
-        "No design file found — manual fulfillment required"
-      )
+      await fail("No design file found — manual fulfillment required", {
+        campaignTitle: order.campaign.title,
+        orgName: order.campaign.org.name,
+        buyerEmail: order.buyerEmail,
+        attempts: order.fulfillmentAttempts,
+      })
       console.warn(`[fulfillment] blocked — no design file for order ${orderId}`)
       return
     }
@@ -45,7 +75,12 @@ export async function submitFulfillment(orderId: string): Promise<void> {
       : null
 
     if (!shipping?.line1 || !shipping.city || !shipping.state || !shipping.postal_code) {
-      await markFulfillmentFailed(orderId, "Incomplete shipping address")
+      await fail("Incomplete shipping address", {
+        campaignTitle: order.campaign.title,
+        orgName: order.campaign.org.name,
+        buyerEmail: order.buyerEmail,
+        attempts: order.fulfillmentAttempts,
+      })
       return
     }
 
@@ -75,6 +110,24 @@ export async function submitFulfillment(orderId: string): Promise<void> {
     const printfulItems = resolvedItems.map((r) => r.printfulItem)
     const catalogNames = resolvedItems.map((r) => r.catalogName)
 
+    // Platform config drives the packing slip and the support footer in the
+    // confirmation email. Best-effort: a config read failure must never block a
+    // paid order, so fall back to the Printful store defaults rather than throwing.
+    let config: Awaited<ReturnType<typeof getOrCreateConfig>> | null = null
+    let packingSlip: PrintfulPackingSlip | undefined
+    try {
+      config = await getOrCreateConfig()
+      packingSlip = buildPackingSlip({
+        platformName: config.platformName,
+        supportEmail: config.supportEmail,
+        logoUrl: config.logoUrl,
+        orgName: order.campaign.org.name,
+        campaignTitle: order.campaign.title,
+      })
+    } catch (err) {
+      console.warn(`[fulfillment] packing slip unavailable for ${orderId}`, err)
+    }
+
     // Submit to Printful (external_id = orderId for deduplication)
     const printfulOrder = await submitPrintfulOrder(
       orderId,
@@ -87,7 +140,8 @@ export async function submitFulfillment(orderId: string): Promise<void> {
         zip: shipping.postal_code,
         country_code: shipping.country ?? "US",
       },
-      printfulItems
+      printfulItems,
+      packingSlip
     )
 
     // Update order status
@@ -108,6 +162,8 @@ export async function submitFulfillment(orderId: string): Promise<void> {
         })),
         totalAmountCents: order.totalAmountCents,
         shippingAddress: shipping,
+        platformName: config?.platformName ?? "the platform",
+        supportEmail: config?.supportEmail ?? null,
       })
     }
 
@@ -115,6 +171,19 @@ export async function submitFulfillment(orderId: string): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown fulfillment error"
     console.error(`[fulfillment] failed: order=${orderId}`, message)
-    await markFulfillmentFailed(orderId, message)
+    // Re-read rather than reuse `order`: the throw may have come from before it
+    // was loaded, and the alert needs context the caller does not have.
+    const failed = await getOrder(orderId).catch(() => null)
+    await fail(
+      message,
+      failed
+        ? {
+            campaignTitle: failed.campaign.title,
+            orgName: failed.campaign.org.name,
+            buyerEmail: failed.buyerEmail,
+            attempts: failed.fulfillmentAttempts,
+          }
+        : undefined
+    )
   }
 }

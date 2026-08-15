@@ -124,6 +124,42 @@ export default async function OrderConfirmationPage({ params, searchParams }: Pr
           </div>
         </div>
 
+        {/* The parcel ships from a printing facility that carries no branding of
+            ours, so this page and the confirmation email are where a buyer has
+            to be able to find us. */}
+        <div className="rounded-lg border bg-white p-6 space-y-2">
+          <p className="text-sm font-medium text-[#2E4057]">Need help with this order?</p>
+          {platformCfg.supportEmail ? (
+            <p className="text-sm text-muted-foreground">
+              Email{" "}
+              <a
+                href={`mailto:${platformCfg.supportEmail}?subject=${encodeURIComponent(
+                  `Order ${order.id.slice(0, 8).toUpperCase()}`
+                )}`}
+                className="text-[#378ADD] hover:underline"
+              >
+                {platformCfg.supportEmail}
+              </a>{" "}
+              and include your order number{" "}
+              <span className="font-mono">{order.id.slice(0, 8).toUpperCase()}</span>. If an item
+              arrived damaged or misprinted, attach a photo — that is all we need to send a
+              replacement.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Contact {platformCfg.platformName} and quote your order number{" "}
+              <span className="font-mono">{order.id.slice(0, 8).toUpperCase()}</span>.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Please don&apos;t ship returns to the address printed on the parcel — that facility
+            can&apos;t match a package to your order.{" "}
+            <Link href="/help" className="text-[#378ADD] hover:underline">
+              See common questions
+            </Link>
+          </p>
+        </div>
+
         <div className="text-center">
           <Link
             href={`/${order.campaign.slug}`}

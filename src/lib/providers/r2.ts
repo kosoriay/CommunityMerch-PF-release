@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
 
 // Lazy initialization — env vars read at call time, not module load time
 // (Turbopack compiles modules before runtime env vars are available)
@@ -41,4 +41,46 @@ export async function uploadToR2(
     ContentType: contentType,
   }))
   return `${publicUrl}/${key}`
+}
+
+/**
+ * Convert a public R2 URL back to its object key.
+ * Returns null for anything not hosted in this bucket — a design URL pointing
+ * elsewhere must never be turned into a delete against our own bucket.
+ */
+export function r2KeyFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  try {
+    const { publicUrl } = getR2()
+    if (!url.startsWith(`${publicUrl}/`)) return null
+    const key = url.slice(publicUrl.length + 1)
+    return key.length > 0 ? decodeURIComponent(key) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Best-effort deletion of uploaded objects.
+ *
+ * Called after the database rows are already gone, so a storage failure must
+ * not surface as an error: the caller cannot roll back, and an orphaned object
+ * costs pennies where a failed delete that looks like a failed deletion would
+ * mislead the operator into thinking their data is still there.
+ */
+export async function deleteFromR2(keys: string[]): Promise<{ deleted: number; failed: number }> {
+  if (keys.length === 0) return { deleted: 0, failed: 0 }
+  let deleted = 0
+  let failed = 0
+  for (const key of keys) {
+    try {
+      const { r2, bucket } = getR2()
+      await r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
+      deleted++
+    } catch (err) {
+      failed++
+      console.warn(`[r2] could not delete ${key}`, err)
+    }
+  }
+  return { deleted, failed }
 }

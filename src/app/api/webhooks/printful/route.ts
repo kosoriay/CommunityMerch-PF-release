@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { markOrderShipped, getOrder } from "@/lib/orders"
 import { sendShippingNotificationEmail } from "@/lib/email"
 import { fromPrintfulExternalId } from "@/lib/printful-ids"
+import { getOrCreateConfig } from "@/lib/platform-config"
 
 if (!process.env.PRINTFUL_WEBHOOK_SECRET) {
   throw new Error("PRINTFUL_WEBHOOK_SECRET is required")
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
     })
 
     if (order.buyerEmail) {
+      const config = await getOrCreateConfig()
       await sendShippingNotificationEmail(order.buyerEmail, {
         orderId,
         buyerName: order.buyerName ?? "Customer",
@@ -81,6 +83,8 @@ export async function POST(request: NextRequest) {
         carrier: shipment.carrier,
         trackingNumber: shipment.tracking_number,
         trackingUrl: shipment.tracking_url,
+        platformName: config.platformName,
+        supportEmail: config.supportEmail,
       })
     }
 

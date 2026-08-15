@@ -84,7 +84,11 @@ export const organizations = sqliteTable("organizations", {
   discountCodeId: text("discount_code_id"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  // Suspension is a platform action taken against an organization; closing is
+  // the organization retiring itself. Kept separate so an organization cannot
+  // clear a suspension by closing and reopening.
   suspendedAt: integer("suspended_at", { mode: "timestamp" }),
+  closedAt: integer("closed_at", { mode: "timestamp" }),
 }, (t) => [
   index("orgs_discount_code_id_idx").on(t.discountCodeId),
 ])
@@ -168,8 +172,10 @@ export const orders = sqliteTable("orders", {
   stripeCheckoutSessionId: text("stripe_checkout_session_id"),
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   printfulOrderId: text("printful_order_id"),
+  // `refunded` is terminal: money has gone back to the buyer and the order no
+  // longer counts toward revenue anywhere.
   status: text("status", {
-    enum: ["pending", "paid", "fulfilled", "shipped", "delivered"],
+    enum: ["pending", "paid", "fulfilled", "shipped", "delivered", "refunded"],
   }).notNull().default("pending"),
   shippingAddressJson: text("shipping_address_json"),
   totalAmountCents: integer("total_amount_cents").notNull(),
@@ -178,6 +184,13 @@ export const orders = sqliteTable("orders", {
   trackingNumber: text("tracking_number"),
   carrier: text("carrier"),
   trackingUrl: text("tracking_url"),
+  // Refund audit trail — a refund moves real money and must be reconcilable
+  // against Stripe afterwards.
+  refundedAt: integer("refunded_at", { mode: "timestamp" }),
+  refundedBy: text("refunded_by").references(() => user.id),
+  refundReason: text("refund_reason"),
+  stripeRefundId: text("stripe_refund_id"),
+  transferReversalId: text("transfer_reversal_id"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => [

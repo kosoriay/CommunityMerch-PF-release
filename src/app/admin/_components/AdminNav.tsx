@@ -30,6 +30,7 @@ export function AdminNav({ email, platformRole, isAdmin }: AdminNavProps) {
   const links = [
     { href: '/admin/dashboard', label: 'Dashboard' },
     { href: '/admin/orgs', label: 'Organizations' },
+    { href: '/admin/orders', label: 'Orders' },
     ...(isAdmin
       ? [
           { href: '/admin/landing', label: 'Landing Page' },

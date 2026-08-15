@@ -3,6 +3,9 @@ import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { auth } from "@/lib/auth"
 import { getOrCreateConfig } from "@/lib/platform-config"
+import { getCatalog, type CatalogItem } from "@/lib/catalog-db"
+import { suggestedRetailCents } from "@/lib/printful-catalog"
+import { formatCents } from "@/lib/format"
 import { getLandingContent } from "@/lib/landing-content-db"
 import { buildStatTiles, getLandingStats } from "@/lib/landing-stats"
 import { HowItWorks } from "@/components/landing/how-it-works"
@@ -18,6 +21,16 @@ import { ClosingCta } from "@/components/landing/closing-cta"
 // incomplete-setup redirect and freeze stats at their build-time values).
 export const dynamic = "force-dynamic"
 
+// Spread four picks across the catalog's display order so the preview shows
+// product variety (tees at the start, hoodies mid-list, mugs/totes at the
+// end) instead of four near-identical shirts.
+function pickSampleProducts(catalog: CatalogItem[]): CatalogItem[] {
+  if (catalog.length <= 4) return catalog
+  const last = catalog.length - 1
+  const indexes = [...new Set([0, Math.round(last / 3), Math.round((2 * last) / 3), last])]
+  return indexes.map((i) => catalog[i])
+}
+
 export default async function LandingPage() {
   const config = await getOrCreateConfig()
 
@@ -25,12 +38,14 @@ export default async function LandingPage() {
     redirect("/setup/step/1")
   }
 
-  const [content, stats, session] = await Promise.all([
+  const [content, stats, session, catalog] = await Promise.all([
     getLandingContent(),
     getLandingStats(),
     auth.api.getSession({ headers: await headers() }),
+    getCatalog(),
   ])
   const statTiles = buildStatTiles(stats)
+  const sampleProducts = pickSampleProducts(catalog)
 
   return (
     <div className="relative min-h-screen bg-gray-50 flex flex-col items-center gap-16 px-4 py-16">
@@ -72,30 +87,38 @@ export default async function LandingPage() {
           <p className="mt-3 text-gray-600 leading-relaxed">{content.hero.subtext}</p>
         </div>
 
-        {/* Sample campaign card preview */}
-        <div className="grid grid-cols-2 gap-4 opacity-60 pointer-events-none select-none w-full max-w-md">
-          {[
-            { label: "Unisex T-Shirt", price: "$28", colors: ["#FFFFFF", "#1f2937", "#1e3a5f"] },
-            { label: "Kids T-Shirt", price: "$28", colors: ["#FFFFFF", "#dc2626"] },
-          ].map((item) => (
-            <div key={item.label} className="border border-gray-200 rounded-xl bg-white overflow-hidden shadow-sm">
-              <div className="h-36 bg-gray-100 flex items-center justify-center text-6xl">👕</div>
-              <div className="p-3">
-                <p className="text-sm font-semibold text-gray-800">{item.label}</p>
-                <div className="flex gap-1.5 mt-1.5">
-                  {item.colors.map((hex) => (
-                    <span
-                      key={hex}
-                      className="w-4 h-4 rounded-full border border-gray-200 inline-block"
-                      style={{ backgroundColor: hex }}
-                    />
-                  ))}
+        {/* Sample product preview from the real catalog (tees, hoodies, mugs, …) */}
+        {sampleProducts.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 opacity-70 pointer-events-none select-none w-full max-w-2xl">
+            {sampleProducts.map((item) => (
+              <div key={item.id} className="border border-gray-200 rounded-xl bg-white overflow-hidden shadow-sm">
+                <div className="h-32 bg-gray-100 flex items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={item.catalogImageUrl}
+                    alt={item.name}
+                    className="h-full w-full object-contain p-2"
+                  />
                 </div>
-                <p className="text-sm font-bold text-gray-900 mt-1">{item.price}</p>
+                <div className="p-3">
+                  <p className="text-xs font-semibold text-gray-800 truncate">{item.name}</p>
+                  <div className="flex gap-1.5 mt-1.5">
+                    {item.availableColors.slice(0, 4).map((color) => (
+                      <span
+                        key={color.hex}
+                        className="w-3.5 h-3.5 rounded-full border border-gray-200 inline-block"
+                        style={{ backgroundColor: color.hex }}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-sm font-bold text-gray-900 mt-1">
+                    {formatCents(suggestedRetailCents(item.podCostCents))}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         <Link
           href="/start"
@@ -114,6 +137,7 @@ export default async function LandingPage() {
       <ClosingCta ctaLabel={content.hero.ctaLabel} primaryColor={config.primaryColor} />
 
       <footer className="flex gap-4 text-xs text-gray-400">
+        <Link href="/help" className="underline hover:text-gray-600">Help</Link>
         <Link href="/terms" className="underline hover:text-gray-600">Terms of Service</Link>
         <Link href="/privacy" className="underline hover:text-gray-600">Privacy Policy</Link>
       </footer>

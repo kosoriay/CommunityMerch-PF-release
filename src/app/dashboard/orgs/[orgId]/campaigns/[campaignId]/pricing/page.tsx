@@ -63,6 +63,7 @@ export default async function PricingPage({ params }: Props) {
           initialPrices={initialPrices}
           initialGoal={campaign.goalAmount}
           initialDeadline={campaign.deadline}
+          initialDisplayMode={campaign.amountDisplayMode}
           initialColors={initialColors}
           catalog={catalog}
         />

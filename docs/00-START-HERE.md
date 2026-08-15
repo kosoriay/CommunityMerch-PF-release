@@ -133,11 +133,51 @@ Tシャツなどのグッズを印刷して購入者の自宅に直接発送す�
 
 **何を取得するか:** `PRINTFUL_API_KEY`、`PRINTFUL_WEBHOOK_SECRET`
 
-**手順（APIキーの取得）:**
+**手順（APIトークンの取得）:**
 1. [https://www.printful.com](https://www.printful.com) を開く → **「Get started for free」** で登録
-2. ダッシュボードに移動したら右上のアカウントメニュー → **「Settings」**
-3. **「API」** タブをクリック
-4. **「Generate API Key」** をクリック → キーをコピー → `PRINTFUL_API_KEY`
+2. [https://developers.printful.com](https://developers.printful.com) を開き、同じアカウントでログイン
+3. **「Private tokens」**（Your tokens）を開く
+   - Developer Portal には **Private tokens** と **Public apps** の2種類がありますが、
+     必要なのは **Private token** です。
+   - Private token = 「自分のストアに、自分のサーバーから接続する」用途。本プラットフォームはこれに該当します。
+   - Public app = 「他の Printful 販売者に自分のアプリをインストールしてもらう」用途（OAuth）。今回は不要です。
+4. **「Create new token」** をクリック
+5. 以下を設定する:
+
+   | 項目 | 設定内容 |
+   |------|---------|
+   | Token name | 用途が分かる名前（例: `SwagFund Production`） |
+   | Contact email | 失効通知が届くアドレス（必ず受信できるもの） |
+   | Expiration date | **2年後**（Printful の最大値。期限なしは選べません） |
+   | Access level | **A single store** → 自分のストアを選択 |
+   | BETA（新API）| **参加しない**（本アプリは v1 API を使用） |
+
+6. **スコープ**は以下の3つだけをチェックする:
+
+   | スコープ | 用途 |
+   |---------|------|
+   | View and manage orders of the authorized store | 注文の送信・重複確認 |
+   | View store products | サイズ・色から商品バリアントを解決、週次の価格同期 |
+   | View and manage store files | モックアップ画像の生成 |
+
+   商品の作成・変更、Webhook の管理は行わないため、それらのスコープは不要です
+   （Webhook はダッシュボードから手動で登録します）。
+
+7. 表示されたトークンをコピー → `PRINTFUL_API_KEY`
+
+> ⚠️ **トークンは作成直後の一度しか表示されません。** 必ずコピーして保存してください。
+
+> 🔴 **2年後に必ず失効します。期限切れになると注文が Printful に送信されなくなり、
+> 購入者は代金を支払っているのに商品が発送されない状態になります。**
+> トークン作成時に、カレンダーへ「Printful トークン更新」の予定を**期限の1ヶ月前**で
+> 登録してください。更新は Developer Portal で新しいトークンを発行し、Vercel の環境変数
+> `PRINTFUL_API_KEY` を差し替えるだけです。
+
+> 💡 かつて Printful のダッシュボード（Settings → API）で発行できた「APIキー」は
+> **2022年9月に発行が停止され、2023年3月に完全に失効しました。**
+> 現在は上記の Developer Portal で発行する「トークン」を使います。
+> なお、旧キーもトークンも文字列長は同じため、**見た目では区別できません。**
+> 認証エラー（401）が出た場合、キーの種類ではなく**有効期限切れを最初に疑ってください。**
 
 **⚠️ 支払い方法の登録（必須）:**
 
@@ -573,7 +613,8 @@ Stripe の仕様で、「注文の通知」と「団体の口座連携完了の�
 
 ### 5-6. 完了！
 
-管理画面（Admin Dashboard）に移動します。
+プラットフォーム管理画面（Platform Admin Dashboard / `/admin`）に移動します。
+これはライセンシー（プラットフォーム運営者）専用の管理画面です。各団体の管理者が使う団体ダッシュボード（`/dashboard`）とは別物です。
 これでサービスが開始されました 🎉
 
 ---

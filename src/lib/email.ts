@@ -29,6 +29,35 @@ type OrderItem = {
   unitPrice: number
 }
 
+/**
+ * Support footer for buyer-facing mail. Items ship from an unbranded printing
+ * facility, so this — alongside the order page and the packing slip — is how a
+ * buyer finds us instead of writing to the printer, who has no relationship
+ * with them and cannot help.
+ */
+function supportHtml(data: {
+  orderId: string
+  platformName: string
+  supportEmail: string | null
+}): string {
+  const orderRef = data.orderId.slice(0, 8).toUpperCase()
+  const contact = data.supportEmail
+    ? `email <a href="mailto:${escapeHtml(data.supportEmail)}?subject=Order%20${orderRef}">${escapeHtml(data.supportEmail)}</a>`
+    : `contact ${escapeHtml(data.platformName)}`
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+  const helpLink = appUrl
+    ? ` <a href="${escapeHtml(appUrl)}/help">Common questions</a>.`
+    : ""
+  return `
+    <hr>
+    <p><strong>Need help with this order?</strong><br>
+    Please ${contact} and quote order <strong>${orderRef}</strong>.
+    If an item arrives damaged or misprinted, attach a photo and we'll send a replacement.${helpLink}</p>
+    <p style="font-size:12px;color:#666">Please don't ship returns to the address printed on the
+    parcel — that facility can't match a package to your order.</p>
+  `
+}
+
 export async function sendOrderConfirmationEmail(
   to: string,
   data: {
@@ -44,6 +73,8 @@ export async function sendOrderConfirmationEmail(
       state?: string
       postal_code?: string
     } | null
+    platformName: string
+    supportEmail: string | null
   }
 ): Promise<void> {
   const itemsHtml = data.items
@@ -66,6 +97,7 @@ export async function sendOrderConfirmationEmail(
     <p><strong>Shipping to:</strong></p>
     ${shippingHtml}
     <p>You'll receive a shipping notification when your order is dispatched.</p>
+    ${supportHtml(data)}
   `
 
   if (!resend) {
@@ -90,6 +122,8 @@ export async function sendShippingNotificationEmail(
     carrier: string
     trackingNumber: string
     trackingUrl: string
+    platformName: string
+    supportEmail: string | null
   }
 ): Promise<void> {
   const html = `
@@ -99,6 +133,7 @@ export async function sendShippingNotificationEmail(
     <p><strong>Carrier:</strong> ${escapeHtml(data.carrier)}</p>
     <p><strong>Tracking number:</strong> ${escapeHtml(data.trackingNumber)}</p>
     <p><a href="${escapeHtml(data.trackingUrl)}">Track your package →</a></p>
+    ${supportHtml(data)}
   `
 
   if (!resend) {
@@ -147,6 +182,55 @@ export async function sendPayoutAccountReplacedEmail(
     from: FROM,
     to,
     subject: `Payout account replaced — ${data.orgName}`,
+    html,
+  })
+}
+
+/**
+ * Operator alert: a paid order never reached the print provider.
+ *
+ * Deliberately blunt about the consequence. This is not an FYI — a buyer has
+ * been charged for something that will never ship until someone acts.
+ */
+export async function sendFulfillmentFailureEmail(
+  to: string[],
+  data: {
+    orderId: string
+    campaignTitle: string
+    orgName: string
+    buyerEmail: string | null
+    error: string
+    attempts: number
+    orderUrl: string | null
+    platformName: string
+  }
+): Promise<void> {
+  const orderRef = data.orderId.slice(0, 8).toUpperCase()
+  const html = `
+    <h2>Order ${orderRef} was paid but not sent to production</h2>
+    <p>The buyer has been charged and nothing will ship until this is resolved.</p>
+    <p>
+      <strong>Campaign:</strong> ${escapeHtml(data.campaignTitle)}<br>
+      <strong>Organization:</strong> ${escapeHtml(data.orgName)}<br>
+      <strong>Buyer:</strong> ${escapeHtml(data.buyerEmail ?? "unknown")}<br>
+      <strong>Attempts:</strong> ${data.attempts}
+    </p>
+    <p><strong>Error:</strong><br><code>${escapeHtml(data.error)}</code></p>
+    ${data.orderUrl ? `<p><a href="${escapeHtml(data.orderUrl)}">Open the order to fix and retry →</a></p>` : ""}
+    <p style="font-size:12px;color:#666">If several orders fail at once with an
+    authorization error, check whether the Printful API token has expired — they
+    last at most two years and expiry stops every order at once.</p>
+  `
+
+  if (!resend) {
+    console.log(`[email:fulfillment-failure] to=${to.join(",")} order=${data.orderId} error=${data.error}`)
+    return
+  }
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `⚠️ Order ${orderRef} paid but not fulfilled — ${data.platformName}`,
     html,
   })
 }

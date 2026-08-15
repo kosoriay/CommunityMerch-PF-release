@@ -5,6 +5,17 @@ if (!process.env.PRINTFUL_API_KEY) throw new Error("PRINTFUL_API_KEY is required
 const BASE_URL = "https://api.printful.com"
 const AUTH = `Bearer ${process.env.PRINTFUL_API_KEY}`
 
+// PRINTFUL_API_KEY is a Developer Portal *private* token, and Printful caps
+// those at two years — there is no perpetual option. When one lapses every
+// call here 401s, so orders are paid for and never shipped. A 401 from this
+// module almost always means an expired token rather than a malformed one:
+// legacy keys and current tokens are the same length and indistinguishable by
+// inspection. See docs/2-setup/00-START-HERE.md for rotation.
+//
+// Print file URLs must be externally hosted. Printful rejects images served
+// from its own files.cdn.printful.com with "file URL is not a valid URL",
+// which is why designs are passed as R2 public URLs.
+
 type PrintfulVariantResult = {
   id: number
   size: string
@@ -25,6 +36,16 @@ type PrintfulRecipient = {
   state_code: string
   zip: string
   country_code: string
+}
+
+// Per-order packing slip overrides. Only the three fields Printful documents as
+// overridable are sent — an unrecognized field would 400 the order and block
+// fulfillment entirely, so this stays deliberately narrow.
+// https://developers.printful.com/docs/
+export type PrintfulPackingSlip = {
+  email?: string
+  message?: string
+  logo_url?: string
 }
 
 export type PrintfulOrderResult = {
@@ -79,7 +100,8 @@ export async function getPrintfulVariantId(
 export async function submitPrintfulOrder(
   orderId: string,
   recipient: PrintfulRecipient,
-  items: PrintfulOrderItem[]
+  items: PrintfulOrderItem[],
+  packingSlip?: PrintfulPackingSlip
 ): Promise<PrintfulOrderResult> {
   // Printful rejects external_ids over 32 chars — UUIDs are mapped losslessly
   const externalId = toPrintfulExternalId(orderId)
@@ -88,6 +110,9 @@ export async function submitPrintfulOrder(
     shipping: "STANDARD",
     recipient,
     items,
+    ...(packingSlip && Object.keys(packingSlip).length > 0
+      ? { packing_slip: packingSlip }
+      : {}),
   }
 
   const autoConfirm = process.env.PRINTFUL_AUTO_CONFIRM !== "false"

@@ -34,7 +34,7 @@ A licensable SaaS platform that enables organizations to design and sell custom 
 
 ## 📦 What You Get
 
-- **Organization management** — Multi-tenant with 4 roles: Admin / Member / Student / Buyer
+- **Organization management** — Multi-tenant with 4 org-level roles: Organization Admin / Member / Student / Buyer
 - **Campaign creation wizard** — Design upload + AI design generation (OpenAI gpt-image-1)
 - **Print-on-demand fulfillment** — Automatic order submission to Printful, ships to buyer's home
 - **Stripe Connect payments** — Org bank account payouts with configurable platform fee

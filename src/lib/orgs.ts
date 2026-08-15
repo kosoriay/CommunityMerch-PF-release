@@ -72,6 +72,7 @@ export async function createOrg(
     isInternal: false,
     discountCodeId: null,
     suspendedAt: null,
+    closedAt: null,
     createdAt: now,
     updatedAt: now,
   }

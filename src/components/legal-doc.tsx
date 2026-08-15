@@ -44,6 +44,7 @@ export function LegalDoc({ blocks }: { blocks: LegalBlock[] }) {
         })}
         <footer className="pt-10 flex gap-4 text-sm text-gray-500">
           <Link href="/" className="underline hover:text-gray-700">Home</Link>
+          <Link href="/help" className="underline hover:text-gray-700">Help</Link>
           <Link href="/terms" className="underline hover:text-gray-700">Terms of Service</Link>
           <Link href="/privacy" className="underline hover:text-gray-700">Privacy Policy</Link>
         </footer>

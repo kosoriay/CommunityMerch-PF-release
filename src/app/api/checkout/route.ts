@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { stripe } from "@/lib/providers/stripe"
 import { estimateShippingCents, calculateCheckoutApplicationFee } from "@/lib/printful-catalog"
 import { createPendingOrder, type CartItem } from "@/lib/orders"
+import { resolveMaxOrderTotalCents } from "@/lib/order-limits"
+import { formatCents } from "@/lib/format"
 import { getCampaign } from "@/lib/campaigns"
 import { db } from "@/lib/db/client"
 import { organizations } from "@/lib/db/schema"
@@ -46,6 +48,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "This campaign is currently unavailable" }, { status: 403 })
   }
 
+  // A closed organization has retired. Its records stay, but it stops trading.
+  if (org.closedAt) {
+    return NextResponse.json(
+      { error: "This organization is no longer accepting orders" },
+      { status: 403 }
+    )
+  }
+
   // Use the fee rate snapshot locked at campaign publish time (basis points → decimal)
   const feeRate = campaign.platformFeeRate / 10000
 
@@ -64,10 +74,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Create pending order
-  const order = await createPendingOrder(campaignId, items)
-
-  const appUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000"
   const totalCents = items.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0)
 
   // Buyer pays shipping; the application fee recovers POD + shipping + Stripe
@@ -97,6 +103,27 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
+
+  // Cap the value of a single checkout. The platform owner fronts the Printful
+  // bill and carries the chargeback loss on already-shipped goods, so per-order
+  // exposure is what needs bounding — see src/lib/order-limits.ts.
+  const maxOrderCents = resolveMaxOrderTotalCents()
+  if (totalCents + shippingCents > maxOrderCents) {
+    return NextResponse.json(
+      {
+        error:
+          `Orders over ${formatCents(maxOrderCents)} can't be placed in one checkout. ` +
+          `Please split this into smaller orders, or contact the campaign organizer for a bulk order.`,
+      },
+      { status: 400 }
+    )
+  }
+
+  // Create the pending order only once every check has passed, so a rejected
+  // checkout doesn't leave an orphan row behind.
+  const order = await createPendingOrder(campaignId, items)
+
+  const appUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000"
 
   // Build Stripe line items
   const lineItems = items.map((item) => {
