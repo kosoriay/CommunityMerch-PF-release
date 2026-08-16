@@ -477,7 +477,8 @@ CLOUDFLARE_R2_PUBLIC_URL=https://pub-ここに入力.r2.dev
 # ─── Printful（印刷・発送）───────────────────────────────────────────────
 # developers.printful.com → Private tokens → Create new token で発行
 # （Public app ではなく Private token を選ぶこと）
-# スコープ: orders(管理) / store products(閲覧) / store files(管理) の3つ
+# スコープ: orders(管理) / store products(閲覧) / store files(管理)
+# ＋ webhooks/read と webhooks/write（Webhook 設定に必須。無いと 403 で止まる）
 # 有効期限は最大2年。失効すると注文が発送されなくなるため要カレンダー登録
 # （ダッシュボード Settings → API の旧「APIキー」は失効済み・使用不可）
 PRINTFUL_API_KEY=ここに入力

@@ -152,16 +152,22 @@ Tシャツなどのグッズを印刷して購入者の自宅に直接発送す�
    | Access level | **A single store** → 自分のストアを選択 |
    | BETA（新API）| **参加しない**（本アプリは v1 API を使用） |
 
-6. **スコープ**は以下の3つだけをチェックする:
+6. **スコープ**は以下をチェックする:
 
    | スコープ | 用途 |
    |---------|------|
    | View and manage orders of the authorized store | 注文の送信・重複確認 |
    | View store products | サイズ・色から商品バリアントを解決、週次の価格同期 |
    | View and manage store files | モックアップ画像の生成 |
+   | **View webhook configuration**（`webhooks/read`） | **後述の Webhook 設定を確認するため** |
+   | **Manage webhook configuration**（`webhooks/write`） | **後述の Webhook 設定を行うため** |
 
-   商品の作成・変更、Webhook の管理は行わないため、それらのスコープは不要です
-   （Webhook はダッシュボードから手動で登録します）。
+   商品の作成・変更は行わないため、そのスコープは不要です。
+
+   > ⚠️ **webhook の2つを飛ばすと、あとで Webhook を設定しようとしたときに
+   > `403 This endpoint requires any of the following scopes granted: webhooks/read!`
+   > で止まります。** その場合はトークンを作り直すことになります（下の「既にトークンを
+   > 発行済みの場合」を参照）。
 
 7. 表示されたトークンをコピー → `PRINTFUL_API_KEY`
 
@@ -582,6 +588,23 @@ curl -s -X POST https://api.printful.com/webhooks \
 **手順3 — 反映を確認する**
 
 手順1をもう一度実行し、`types` に3つ揃っていることを確認してください。
+
+#### 既にトークンを発行済みで、webhook スコープが無い場合
+
+手順1が次のエラーで止まります。
+
+```
+403 This endpoint requires any of the following scopes granted: webhooks/read!
+```
+
+**本番で使っているトークンは絶対に削除・失効させないでください。** 消すと全注文の履行が止まります。代わりに、この設定作業専用のトークンをもう1本作ります。
+
+1. developers.printful.com → **Private tokens** → **Create new token**
+2. スコープは **webhook の2つだけ**（`webhooks/read` と `webhooks/write`）で構いません
+3. そのトークンで上の手順1〜3を実行する
+4. 終わったらこのトークンは破棄してよい。**Vercel の `PRINTFUL_API_KEY` は変更しないこと**
+
+こうすれば、本番のトークンに一切触れずに Webhook を設定できます。
 
 ### 4-4. Vercel に Webhook シークレットを登録する
 
