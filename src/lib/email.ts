@@ -234,3 +234,59 @@ export async function sendFulfillmentFailureEmail(
     html,
   })
 }
+
+/**
+ * Tell the operator that Printful resolved something on their side.
+ *
+ * Deliberately does not say "refunded" without qualification: Printful
+ * refunding the platform owner for a reprint is a different event from the
+ * buyer being refunded, and conflating the two would misread the books.
+ */
+export async function sendPrintfulResolutionEmail(
+  to: string[],
+  data: {
+    orderId: string
+    event: "order_refunded" | "package_returned"
+    campaignTitle: string
+    orgName: string
+    printfulOrderId: string | null
+    orderUrl: string | null
+    platformName: string
+  }
+): Promise<void> {
+  const orderRef = data.orderId.slice(0, 8).toUpperCase()
+  const refunded = data.event === "order_refunded"
+
+  const headline = refunded
+    ? `Printful refunded order ${orderRef}`
+    : `Order ${orderRef} was returned to Printful`
+  const explanation = refunded
+    ? `Printful has credited the production cost back to you. <strong>The buyer has not been
+       refunded by this</strong> — their Stripe payment and the organization's share are
+       unchanged. If the buyer is also owed money, refund the order separately.`
+    : `The package came back to Printful, usually a bad or refused address. The buyer paid and
+       has nothing. Decide whether to correct the address and reship, or refund.`
+
+  const html = `
+    <h2>${headline}</h2>
+    <p>${explanation}</p>
+    <p>
+      <strong>Campaign:</strong> ${escapeHtml(data.campaignTitle)}<br>
+      <strong>Organization:</strong> ${escapeHtml(data.orgName)}<br>
+      <strong>Printful order:</strong> ${escapeHtml(data.printfulOrderId ?? "unknown")}
+    </p>
+    ${data.orderUrl ? `<p><a href="${escapeHtml(data.orderUrl)}">Open the order →</a></p>` : ""}
+  `
+
+  if (!resend) {
+    console.log(`[email:printful-resolution] to=${to.join(",")} order=${data.orderId} event=${data.event}`)
+    return
+  }
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `${headline} — ${data.platformName}`,
+    html,
+  })
+}

@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth"
 import { refundOrder } from "@/lib/refunds"
 import { submitFulfillment } from "@/lib/fulfillment"
 import { getOrder, updateShippingAddress } from "@/lib/orders"
+import { anonymizeSingleOrder } from "@/lib/order-pii"
 
 async function requirePlatformAdmin() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -122,4 +123,35 @@ export async function updateAddressAction(
   )
   revalidatePath(`/admin/orders/${orderId}`)
   return { success: "Address updated. Retry fulfillment to send it to production." }
+}
+
+export type AnonymizeFormState = { error?: string; success?: string } | undefined
+
+/**
+ * Clear a buyer's details on request, ahead of the retention window.
+ *
+ * `platform_admin` only, and irreversible: the name, email, address and
+ * tracking number are gone afterwards. The amount and the campaign stay, so
+ * revenue history and Stripe reconciliation still line up.
+ *
+ * Forcing past the dispute window needs the order id typed back, because a
+ * refund inside that window needs the identity this destroys.
+ */
+export async function anonymizeOrderAction(
+  orderId: string,
+  _prev: AnonymizeFormState,
+  formData: FormData
+): Promise<AnonymizeFormState> {
+  await requirePlatformAdmin()
+
+  const force = formData.get("force") === "on"
+  if (force && String(formData.get("confirmation") ?? "").trim() !== orderId) {
+    return { error: "Type the order id exactly to confirm an early erasure." }
+  }
+
+  const result = await anonymizeSingleOrder(orderId, new Date(), { force })
+  if (!result.ok) return { error: result.error }
+
+  revalidatePath(`/admin/orders/${orderId}`)
+  return { success: "The buyer's details have been cleared. The amount and campaign are unchanged." }
 }

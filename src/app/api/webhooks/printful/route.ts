@@ -3,6 +3,7 @@ import { markOrderShipped, getOrder } from "@/lib/orders"
 import { sendShippingNotificationEmail } from "@/lib/email"
 import { fromPrintfulExternalId } from "@/lib/printful-ids"
 import { getOrCreateConfig } from "@/lib/platform-config"
+import { alertPrintfulResolution } from "@/lib/fulfillment-alerts"
 
 if (!process.env.PRINTFUL_WEBHOOK_SECRET) {
   throw new Error("PRINTFUL_WEBHOOK_SECRET is required")
@@ -40,6 +41,36 @@ export async function POST(request: NextRequest) {
     payload = await request.json() as PrintfulShipmentPayload
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
+  // Printful resolves claims on their side and tells us afterwards. We cannot
+  // file the claim through their API, so this is the only signal that a reprint
+  // was credited back or a package came home.
+  if (payload.type === "order_refunded" || payload.type === "package_returned") {
+    const resolvedId = fromPrintfulExternalId(payload.data.order.external_id)
+    if (!resolvedId) {
+      console.error(`[printful-webhook] ${payload.type} with no external_id`)
+      return NextResponse.json({ received: true })
+    }
+    const resolved = await getOrder(resolvedId)
+    if (!resolved) {
+      console.error(`[printful-webhook] order not found: ${resolvedId}`)
+      return NextResponse.json({ received: true })
+    }
+
+    // Deliberately not touching `status`. `refunded` there means the buyer got
+    // their money back through Stripe; Printful crediting the production cost
+    // to the platform owner is a different event, and marking it as a buyer
+    // refund would take the order out of revenue that the organization is
+    // still owed.
+    await alertPrintfulResolution({
+      orderId: resolvedId,
+      event: payload.type,
+      campaignTitle: resolved.campaign.title,
+      orgName: resolved.campaign.org.name,
+      printfulOrderId: resolved.printfulOrderId,
+    })
+    return NextResponse.json({ received: true })
   }
 
   if (payload.type !== "package_shipped") {

@@ -539,8 +539,18 @@ Stripe の仕様で、「注文の通知」と「団体の口座連携完了の�
 
 1. [https://www.printful.com](https://www.printful.com) にログイン
 2. **「Settings」** → **「API」** → **「Webhooks」** タブ
-3. Webhook URL: `https://（あなたのURL）.vercel.app/api/webhooks/printful`
-4. 設定を保存 → 表示されるシークレットをコピー → `PRINTFUL_WEBHOOK_SECRET`
+3. Webhook URL: `https://（あなたのURL）.vercel.app/api/webhooks/printful?secret=（好きなランダム文字列）`
+4. **イベントを3つ有効にする** — ここを飛ばすと、対応する機能が動きません:
+
+   | イベント | 有効にしないと起きること |
+   |---|---|
+   | **Package shipped** | 買い手に発送通知メールが届かず、追跡番号も記録されない |
+   | **Order refunded** | Printful が再印刷クレームを認めて**製造費を返金しても、気付けない** |
+   | **Package returned** | 住所不備などで**商品が返送されても、気付けない**。買い手は支払い済みで手元に何も無い |
+
+5. 設定を保存 → URL に入れたランダム文字列を `PRINTFUL_WEBHOOK_SECRET` に登録
+
+> **Order refunded は「買い手への返金」ではありません。** Printful がこちらに製造費を返すイベントです。買い手への返金は別途 Stripe 側で行う必要があり、通知メールにもその旨が書かれています。
 
 ### 4-4. Vercel に Webhook シークレットを登録する
 

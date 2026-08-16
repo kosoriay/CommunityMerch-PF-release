@@ -5,6 +5,7 @@ import { and, eq, lt, isNotNull, gt } from "drizzle-orm"
 import { generateCampaignMockups } from "@/lib/mockup-generator"
 import { materializeExpiredCampaigns } from "@/lib/campaign-lifecycle"
 import { sweepOrphanedUploads } from "@/lib/orphaned-uploads"
+import { sweepExpiredOrderPII } from "@/lib/order-pii"
 
 export async function GET(req: Request): Promise<NextResponse> {
   const authHeader = req.headers.get("Authorization")
@@ -27,6 +28,11 @@ export async function GET(req: Request): Promise<NextResponse> {
   // the wizard strands the file. The seven-day grace period means an upload
   // waiting on an unsaved form is never in scope.
   const orphanSweep = await sweepOrphanedUploads(now)
+
+  // Buyer names, emails, addresses and tracking numbers are cleared once the
+  // retention window closes. Amounts and campaign links stay, so revenue history
+  // and Stripe reconciliation are unaffected.
+  const piiSweep = await sweepExpiredOrderPII(now)
 
   // 1. Clear mockups for campaigns closed 14+ days ago
   const closedCampaigns = await db
@@ -95,5 +101,6 @@ export async function GET(req: Request): Promise<NextResponse> {
     ok: true,
     closedByDeadline,
     orphanedUploadsDeleted: orphanSweep.deleted,
+    ordersAnonymized: piiSweep.anonymized,
   })
 }

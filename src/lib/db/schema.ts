@@ -194,6 +194,10 @@ export const orders = sqliteTable("orders", {
   refundReason: text("refund_reason"),
   stripeRefundId: text("stripe_refund_id"),
   transferReversalId: text("transfer_reversal_id"),
+  // When the buyer's identifying details were cleared. Keeping the timestamp
+  // makes the action auditable and the job idempotent — the amount and the
+  // campaign stay, so revenue history is unaffected.
+  piiAnonymizedAt: integer("pii_anonymized_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => [
