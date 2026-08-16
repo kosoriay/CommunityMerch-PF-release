@@ -552,6 +552,37 @@ Stripe の仕様で、「注文の通知」と「団体の口座連携完了の�
 
 > **Order refunded は「買い手への返金」ではありません。** Printful がこちらに製造費を返すイベントです。買い手への返金は別途 Stripe 側で行う必要があり、通知メールにもその旨が書かれています。
 
+#### 画面が見つからない場合（および、既に運用中の場合）
+
+Printful の管理画面はレイアウトが変わることがあります。**確実なのは API で設定する方法**です。ターミナルで次を実行してください（`PRINTFUL_API_KEY` は発行済みのトークン）。
+
+**手順1 — いまの設定を確認する（読むだけ・安全）**
+
+```bash
+curl -s -H "Authorization: Bearer あなたのPRINTFUL_API_KEY" \
+  https://api.printful.com/webhooks
+```
+
+`url` と `types` が返ります。**`types` に `order_refunded` と `package_returned` が無ければ、手順2が必要です。**
+
+**手順2 — 3つまとめて設定する**
+
+```bash
+curl -s -X POST https://api.printful.com/webhooks \
+  -H "Authorization: Bearer あなたのPRINTFUL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://（あなたのURL）.vercel.app/api/webhooks/printful?secret=（PRINTFUL_WEBHOOK_SECRETと同じ値）",
+    "types": ["package_shipped", "order_refunded", "package_returned"]
+  }'
+```
+
+> ⚠️ **必ず3つ同時に指定してください。** この設定が既存の指定を置き換えるのか追記するのかは公式ドキュメントに明記がありません。3つまとめて送れば、どちらの挙動でも正しい結果になります。1つずつ追加すると、置き換え動作だった場合に `package_shipped` を失い、**発送通知が止まります。**
+
+**手順3 — 反映を確認する**
+
+手順1をもう一度実行し、`types` に3つ揃っていることを確認してください。
+
 ### 4-4. Vercel に Webhook シークレットを登録する
 
 1. [https://vercel.com](https://vercel.com) → 自分のプロジェクトをクリック

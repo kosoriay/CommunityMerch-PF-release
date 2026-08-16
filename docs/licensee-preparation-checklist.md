@@ -507,6 +507,18 @@ CRON_SECRET=ここに入力（ランダム文字列）
 > - `BETTER_AUTH_SECRET`: 任意の32文字以上の文字列でOK（推測されないランダムなものを使用）
 > - `PRINTFUL_WEBHOOK_SECRET`: 任意の文字列でOK（Printful からの webhook を認証するためのパスワード）
 
+> ⚠️ **Printful の Webhook は「イベントを3つ選ぶ」必要があります。**
+> URL を登録しただけでは足りません。有効にするのは次の3つです。
+>
+> | イベント | 有効にしないと起きること |
+> |---|---|
+> | `package_shipped` | 買い手に発送通知が届かず、追跡番号も記録されない |
+> | `order_refunded` | Printful が製造費を返金しても気付けない |
+> | `package_returned` | 商品が返送されても気付けない（買い手は支払い済みで手元に何も無い） |
+>
+> 手順は `docs/00-START-HERE.md` の「Printful の Webhook を設定する」を参照してください。
+> **v1.18.0 より前に構築した場合、`package_shipped` しか有効になっていません。** 後ろの2つを追加してください。
+
 ---
 
 ## 📦 Section 4: デプロイ手順（概要）
