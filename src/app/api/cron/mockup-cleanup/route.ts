@@ -4,6 +4,7 @@ import { campaigns, campaignProducts, designs } from "@/lib/db/schema"
 import { and, eq, lt, isNotNull, gt } from "drizzle-orm"
 import { generateCampaignMockups } from "@/lib/mockup-generator"
 import { materializeExpiredCampaigns } from "@/lib/campaign-lifecycle"
+import { sweepOrphanedUploads } from "@/lib/orphaned-uploads"
 
 export async function GET(req: Request): Promise<NextResponse> {
   const authHeader = req.headers.get("Authorization")
@@ -21,6 +22,11 @@ export async function GET(req: Request): Promise<NextResponse> {
   //    which the dashboard grouping and step 1 below both read. Idempotent, and
   //    harmless if it runs late.
   const closedByDeadline = await materializeExpiredCampaigns(now)
+
+  // Design images are written to R2 before any row references them, so leaving
+  // the wizard strands the file. The seven-day grace period means an upload
+  // waiting on an unsaved form is never in scope.
+  const orphanSweep = await sweepOrphanedUploads(now)
 
   // 1. Clear mockups for campaigns closed 14+ days ago
   const closedCampaigns = await db
@@ -85,5 +91,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     }
   }
 
-  return NextResponse.json({ ok: true, closedByDeadline })
+  return NextResponse.json({
+    ok: true,
+    closedByDeadline,
+    orphanedUploadsDeleted: orphanSweep.deleted,
+  })
 }

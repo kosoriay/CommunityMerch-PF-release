@@ -1,4 +1,9 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command,
+} from "@aws-sdk/client-s3"
 
 // Lazy initialization — env vars read at call time, not module load time
 // (Turbopack compiles modules before runtime env vars are available)
@@ -68,6 +73,41 @@ export function r2KeyFromUrl(url: string | null | undefined): string | null {
  * costs pennies where a failed delete that looks like a failed deletion would
  * mislead the operator into thinking their data is still there.
  */
+/** 一度に読むページ数の上限。1ページ1000件なので、上限は10,000件になる。 */
+const MAX_LIST_PAGES = 10
+
+/**
+ * 指定した接頭辞のオブジェクトを列挙する。
+ *
+ * ページ数に上限を置いてあるのは、バケットが想定外に大きいときに cron が走り
+ * 続けないようにするため。取りこぼした分は翌日の実行で拾える。
+ */
+export async function listR2Objects(
+  prefix: string
+): Promise<{ key: string; lastModified: Date }[]> {
+  const { r2, bucket } = getR2()
+  const objects: { key: string; lastModified: Date }[] = []
+  let continuationToken: string | undefined
+  let pages = 0
+
+  do {
+    const res = await r2.send(new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: prefix,
+      ContinuationToken: continuationToken,
+    }))
+    for (const item of res.Contents ?? []) {
+      // Key も LastModified も欠けていたら判定できない。消す側に倒さない。
+      if (!item.Key || !item.LastModified) continue
+      objects.push({ key: item.Key, lastModified: item.LastModified })
+    }
+    continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined
+    pages++
+  } while (continuationToken && pages < MAX_LIST_PAGES)
+
+  return objects
+}
+
 export async function deleteFromR2(keys: string[]): Promise<{ deleted: number; failed: number }> {
   if (keys.length === 0) return { deleted: 0, failed: 0 }
   let deleted = 0
