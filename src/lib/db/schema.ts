@@ -128,6 +128,9 @@ export const campaigns = sqliteTable("campaigns", {
   }).notNull().default("percent_only"),
   platformFeeRate:       integer("platform_fee_rate").notNull().default(900),
   appliedDiscountCodeId: text("applied_discount_code_id"),
+  // When the campaign stopped selling. Kept separate from `updatedAt` because
+  // editing a finished campaign must not move the clock the cleanup cron reads.
+  closedAt: integer("closed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => [

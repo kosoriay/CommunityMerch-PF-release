@@ -1,6 +1,6 @@
 import { db } from "@/lib/db/client"
 import { campaigns, campaignProducts, designs, organizations } from "@/lib/db/schema"
-import { and, count, desc, eq } from "drizzle-orm"
+import { and, count, desc, eq, ne } from "drizzle-orm"
 import { getActiveCodeForOrg, getPlatformFeeRate } from "@/lib/discount-codes"
 
 const RESERVED_SLUGS = new Set(["dashboard", "sign-in", "invite", "api", "uploads"])
@@ -53,6 +53,7 @@ export async function createCampaign(
     amountDisplayMode: "percent_only",
     platformFeeRate: 900,
     appliedDiscountCodeId: null,
+    closedAt: null,
     createdAt: now,
     updatedAt: now,
   }
@@ -65,9 +66,16 @@ export async function getCampaign(campaignId: string) {
   })
 }
 
+/**
+ * For the public page. Hides drafts only.
+ *
+ * A campaign that has ended keeps its URL. Returning nothing would break every
+ * link already sent to a mailing list or posted to a class group, and the page
+ * is where supporters find out how it went.
+ */
 export async function getCampaignBySlug(slug: string) {
   return db.query.campaigns.findFirst({
-    where: and(eq(campaigns.slug, slug), eq(campaigns.status, "active")),
+    where: and(eq(campaigns.slug, slug), ne(campaigns.status, "draft")),
     with: { products: true, design: true, org: true },
   })
 }

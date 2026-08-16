@@ -5,6 +5,7 @@ import { createPendingOrder, type CartItem } from "@/lib/orders"
 import { resolveMaxOrderTotalCents } from "@/lib/order-limits"
 import { formatCents } from "@/lib/format"
 import { getCampaign } from "@/lib/campaigns"
+import { isSellingOpen } from "@/lib/campaign-lifecycle"
 import { db } from "@/lib/db/client"
 import { organizations } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
@@ -31,8 +32,18 @@ export async function POST(request: NextRequest) {
 
   // Validate campaign
   const campaign = await getCampaign(campaignId)
-  if (!campaign || campaign.status !== "active" || campaign.orgId !== orgId) {
+  if (!campaign || campaign.orgId !== orgId) {
     return NextResponse.json({ error: "Campaign not found or not active" }, { status: 404 })
+  }
+
+  // A campaign past its deadline already tells buyers it has ended. Enforcing
+  // that in the page alone leaves it purchasable by anyone posting here
+  // directly, so the refusal has to live on this side of the network.
+  if (!isSellingOpen(campaign, new Date())) {
+    return NextResponse.json(
+      { error: "This campaign is no longer accepting orders" },
+      { status: 403 }
+    )
   }
 
   // Validate org has Stripe Connect

@@ -3,6 +3,7 @@ import { db } from "@/lib/db/client"
 import { campaigns, campaignProducts, designs } from "@/lib/db/schema"
 import { and, eq, lt, isNotNull, gt } from "drizzle-orm"
 import { generateCampaignMockups } from "@/lib/mockup-generator"
+import { materializeExpiredCampaigns } from "@/lib/campaign-lifecycle"
 
 export async function GET(req: Request): Promise<NextResponse> {
   const authHeader = req.headers.get("Authorization")
@@ -15,11 +16,19 @@ export async function GET(req: Request): Promise<NextResponse> {
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
   const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
 
+  // 0. Write back campaigns whose deadline has passed. Selling is already
+  //    stopped by isSellingOpen at checkout — this is the record catching up,
+  //    which the dashboard grouping and step 1 below both read. Idempotent, and
+  //    harmless if it runs late.
+  const closedByDeadline = await materializeExpiredCampaigns(now)
+
   // 1. Clear mockups for campaigns closed 14+ days ago
   const closedCampaigns = await db
     .select({ id: campaigns.id })
     .from(campaigns)
-    .where(and(eq(campaigns.status, "closed"), lt(campaigns.updatedAt, fourteenDaysAgo)))
+    // Measured from closedAt, not updatedAt: editing a finished campaign would
+    // otherwise push the cleanup back another fortnight each time.
+    .where(and(eq(campaigns.status, "closed"), lt(campaigns.closedAt, fourteenDaysAgo)))
 
   for (const campaign of closedCampaigns) {
     await db
@@ -76,5 +85,5 @@ export async function GET(req: Request): Promise<NextResponse> {
     }
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, closedByDeadline })
 }
