@@ -12,6 +12,7 @@ import { and, eq } from "drizzle-orm"
 import { AdminBanner } from "./_admin-banner"
 import { getOrCreateConfig } from "@/lib/platform-config"
 import { getCampaignProgress, progressVisibility } from "@/lib/campaign-progress"
+import { effectiveStatus } from "@/lib/campaign-lifecycle"
 import { CampaignProgressPanel } from "@/components/campaign/progress-panel"
 
 export const dynamic = "force-dynamic"
@@ -82,7 +83,9 @@ export default async function PublicCampaignPage({ params }: Props) {
   }
 
   const daysLeft = campaign.deadline ? daysUntil(campaign.deadline) : null
-  const isExpired = daysLeft !== null && daysLeft <= 0
+  // A passed deadline and an organiser pressing "End campaign" are the same
+  // thing to a buyer: it can no longer be bought.
+  const isEnded = effectiveStatus(campaign, new Date()) === "closed"
 
   return (
     <div>
@@ -109,7 +112,7 @@ export default async function PublicCampaignPage({ params }: Props) {
 
         {/* Progress — real order data. A buyer must never be shown a bar that
             does not correspond to what has actually sold. */}
-        {(daysLeft !== null || campaign.goalAmount || progress.orderCount > 0) && (
+        {(daysLeft !== null || campaign.goalAmount || progress.orderCount > 0 || isEnded) && (
           <div className="space-y-2">
             <CampaignProgressPanel
               netRaisedCents={progress.netRaisedCents}
@@ -120,19 +123,19 @@ export default async function PublicCampaignPage({ params }: Props) {
               daysRemaining={progress.daysRemaining}
               visibility={progressVisibility("public", campaign.amountDisplayMode)}
             />
-            {daysLeft !== null && !isExpired && (
+            {daysLeft !== null && !isEnded && (
               <p className="text-xs text-muted-foreground text-center">
                 Deadline {formatDate(campaign.deadline!)}
               </p>
             )}
-            {isExpired && (
+            {isEnded && (
               <p className="text-sm text-red-600 font-medium text-center">Campaign ended</p>
             )}
           </div>
         )}
 
         {/* Cart + Products */}
-        {isExpired ? (
+        {isEnded ? (
           <div className="rounded-lg border bg-white p-6 text-center text-muted-foreground">
             <p className="font-medium">Campaign ended</p>
             <p className="text-sm mt-1">Ordering is no longer available.</p>

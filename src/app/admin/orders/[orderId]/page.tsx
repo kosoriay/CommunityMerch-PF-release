@@ -12,6 +12,9 @@ import { orderRefundBreakdown } from "@/lib/refunds"
 import { OrderStatusBadge } from "../../_components/OrderStatusBadge"
 import { RefundPanel } from "./_refund-panel"
 import { RecoveryPanel } from "./_recovery-panel"
+import { PrivacyPanel } from "./_privacy-panel"
+import { anonymizeOrderAction } from "./_actions"
+import { DISPUTE_WINDOW_DAYS } from "@/lib/order-pii"
 
 export const dynamic = "force-dynamic"
 
@@ -50,6 +53,11 @@ export default async function AdminOrderDetailPage({
   const shipping = order.shippingAddressJson
     ? (JSON.parse(order.shippingAddressJson) as ShippingAddress)
     : null
+
+  // Only decides whether the extra confirmation appears. The server action
+  // re-checks the window itself, so this cannot be bypassed from the client.
+  const withinDisputeWindow =
+    new Date().getTime() - order.updatedAt.getTime() < DISPUTE_WINDOW_DAYS * 86_400_000
 
   return (
     <div className="space-y-6">
@@ -251,6 +259,15 @@ export default async function AdminOrderDetailPage({
           orgName={order.campaign.org.name}
         />
       ) : null}
+
+      {isPlatformAdmin && (
+        <PrivacyPanel
+          orderId={order.id}
+          anonymizedAt={order.piiAnonymizedAt}
+          withinDisputeWindow={withinDisputeWindow}
+          action={anonymizeOrderAction.bind(null, order.id)}
+        />
+      )}
     </div>
   )
 }

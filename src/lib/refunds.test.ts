@@ -29,6 +29,20 @@ vi.mock("@/lib/providers/stripe", () => ({
   },
 }))
 
+const getOrgMembers = vi.fn()
+vi.mock("@/lib/orgs", () => ({
+  getOrgMembers: (...a: unknown[]) => getOrgMembers(...a),
+}))
+
+const sendRefundNotificationEmail = vi.fn()
+vi.mock("@/lib/email", () => ({
+  sendRefundNotificationEmail: (...a: unknown[]) => sendRefundNotificationEmail(...a),
+}))
+
+vi.mock("@/lib/platform-config", () => ({
+  getOrCreateConfig: async () => ({ platformName: "Test", supportEmail: "s@example.com" }),
+}))
+
 import { refundOrder, refundBreakdown, orderRefundBreakdown } from "./refunds"
 
 // Mirrors the measured example: $24.00 tee + $4.69 shipping = $28.69 charged,
@@ -38,7 +52,9 @@ const PAID_ORDER = {
   status: "delivered",
   stripePaymentIntentId: "pi_123",
   totalAmountCents: 2400,
-  campaign: { orgId: "org-1", platformFeeRate: 900 },
+  // The query loads the whole campaign row (`with: { campaign: true }`), so the
+  // fixture carries the title the notification reads.
+  campaign: { orgId: "org-1", platformFeeRate: 900, title: "Spring 2026 Fundraiser" },
   items: [{ quantity: 1, product: { podCost: 1225, printfulVariantId: "bc-3001-tee" } }],
 }
 
@@ -54,6 +70,15 @@ beforeEach(() => {
     pending: [],
   })
   refundsCreate.mockResolvedValue({ id: "re_1", transfer_reversal: "trr_1" })
+  getOrgMembers.mockReset()
+  sendRefundNotificationEmail.mockReset()
+  getOrgMembers.mockResolvedValue([
+    { role: "admin", user: { email: "admin@example.com" } },
+    { role: "admin", user: { email: "admin2@example.com" } },
+    { role: "member", user: { email: "member@example.com" } },
+    { role: "student", user: { email: "student@example.com" } },
+  ])
+  sendRefundNotificationEmail.mockResolvedValue(undefined)
 })
 
 const call = (overrides = {}) =>
@@ -202,5 +227,63 @@ describe("refundBreakdown", () => {
     const r = refundBreakdown({ itemSubtotalCents: 1000, shippingCents: 0, applicationFeeCents: 1500 })
     expect(r.organizationReturnsCents).toBe(0)
     expect(r.platformAbsorbsCents).toBe(1000)
+  })
+})
+
+describe("refundOrder — notifying the organization", () => {
+  it("should notify every organization admin", async () => {
+    findOrder.mockResolvedValue(PAID_ORDER)
+    await call()
+
+    const recipients = sendRefundNotificationEmail.mock.calls.map((c) => c[0])
+    expect(recipients).toEqual(["admin@example.com", "admin2@example.com"])
+  })
+
+  it("should not notify members or students", async () => {
+    // Refunds are financial information. Members and students do not have
+    // access to it in the dashboard, and email must not route around that.
+    findOrder.mockResolvedValue(PAID_ORDER)
+    await call()
+
+    const recipients = sendRefundNotificationEmail.mock.calls.map((c) => c[0])
+    expect(recipients).not.toContain("member@example.com")
+    expect(recipients).not.toContain("student@example.com")
+  })
+
+  it("should never include the refund reason", async () => {
+    // The organization's own order list does not show it; the operator writes
+    // it for the audit trail. An email carrying it would leak internal notes.
+    findOrder.mockResolvedValue(PAID_ORDER)
+    await call({ reason: "buyer was rude about it" })
+
+    const payloads = JSON.stringify(sendRefundNotificationEmail.mock.calls)
+    expect(payloads).not.toContain("rude")
+  })
+
+  it("should tell the organization what leaves their share", async () => {
+    findOrder.mockResolvedValue(PAID_ORDER)
+    await call()
+
+    const data = sendRefundNotificationEmail.mock.calls[0][1] as Record<string, unknown>
+    expect(data.organizationReturns).toBe("$7.08")
+    expect(data.campaignTitle).toBeDefined()
+  })
+
+  it("should still report success when the notification fails", async () => {
+    // The money has already moved in Stripe. Reporting failure here would tell
+    // the operator to refund again.
+    findOrder.mockResolvedValue(PAID_ORDER)
+    sendRefundNotificationEmail.mockRejectedValue(new Error("smtp down"))
+
+    const result = await call()
+    expect(result.ok).toBe(true)
+  })
+
+  it("should still report success when the member lookup fails", async () => {
+    findOrder.mockResolvedValue(PAID_ORDER)
+    getOrgMembers.mockRejectedValue(new Error("db down"))
+
+    const result = await call()
+    expect(result.ok).toBe(true)
   })
 })

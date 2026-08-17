@@ -3,6 +3,9 @@ import { db } from "@/lib/db/client"
 import { campaigns, campaignProducts, designs } from "@/lib/db/schema"
 import { and, eq, lt, isNotNull, gt } from "drizzle-orm"
 import { generateCampaignMockups } from "@/lib/mockup-generator"
+import { materializeExpiredCampaigns } from "@/lib/campaign-lifecycle"
+import { sweepOrphanedUploads } from "@/lib/orphaned-uploads"
+import { sweepExpiredOrderPII } from "@/lib/order-pii"
 
 export async function GET(req: Request): Promise<NextResponse> {
   const authHeader = req.headers.get("Authorization")
@@ -15,11 +18,29 @@ export async function GET(req: Request): Promise<NextResponse> {
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
   const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
 
+  // 0. Write back campaigns whose deadline has passed. Selling is already
+  //    stopped by isSellingOpen at checkout — this is the record catching up,
+  //    which the dashboard grouping and step 1 below both read. Idempotent, and
+  //    harmless if it runs late.
+  const closedByDeadline = await materializeExpiredCampaigns(now)
+
+  // Design images are written to R2 before any row references them, so leaving
+  // the wizard strands the file. The seven-day grace period means an upload
+  // waiting on an unsaved form is never in scope.
+  const orphanSweep = await sweepOrphanedUploads(now)
+
+  // Buyer names, emails, addresses and tracking numbers are cleared once the
+  // retention window closes. Amounts and campaign links stay, so revenue history
+  // and Stripe reconciliation are unaffected.
+  const piiSweep = await sweepExpiredOrderPII(now)
+
   // 1. Clear mockups for campaigns closed 14+ days ago
   const closedCampaigns = await db
     .select({ id: campaigns.id })
     .from(campaigns)
-    .where(and(eq(campaigns.status, "closed"), lt(campaigns.updatedAt, fourteenDaysAgo)))
+    // Measured from closedAt, not updatedAt: editing a finished campaign would
+    // otherwise push the cleanup back another fortnight each time.
+    .where(and(eq(campaigns.status, "closed"), lt(campaigns.closedAt, fourteenDaysAgo)))
 
   for (const campaign of closedCampaigns) {
     await db
@@ -76,5 +97,10 @@ export async function GET(req: Request): Promise<NextResponse> {
     }
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok: true,
+    closedByDeadline,
+    orphanedUploadsDeleted: orphanSweep.deleted,
+    ordersAnonymized: piiSweep.anonymized,
+  })
 }

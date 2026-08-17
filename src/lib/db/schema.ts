@@ -128,6 +128,9 @@ export const campaigns = sqliteTable("campaigns", {
   }).notNull().default("percent_only"),
   platformFeeRate:       integer("platform_fee_rate").notNull().default(900),
   appliedDiscountCodeId: text("applied_discount_code_id"),
+  // When the campaign stopped selling. Kept separate from `updatedAt` because
+  // editing a finished campaign must not move the clock the cleanup cron reads.
+  closedAt: integer("closed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => [
@@ -191,6 +194,10 @@ export const orders = sqliteTable("orders", {
   refundReason: text("refund_reason"),
   stripeRefundId: text("stripe_refund_id"),
   transferReversalId: text("transfer_reversal_id"),
+  // When the buyer's identifying details were cleared. Keeping the timestamp
+  // makes the action auditable and the job idempotent — the amount and the
+  // campaign stay, so revenue history is unaffected.
+  piiAnonymizedAt: integer("pii_anonymized_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => [

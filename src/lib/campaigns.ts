@@ -1,7 +1,8 @@
 import { db } from "@/lib/db/client"
 import { campaigns, campaignProducts, designs, organizations } from "@/lib/db/schema"
-import { and, count, desc, eq } from "drizzle-orm"
+import { and, count, desc, eq, ne } from "drizzle-orm"
 import { getActiveCodeForOrg, getPlatformFeeRate } from "@/lib/discount-codes"
+import { r2KeyFromUrl, deleteFromR2 } from "@/lib/providers/r2"
 
 const RESERVED_SLUGS = new Set(["dashboard", "sign-in", "invite", "api", "uploads"])
 
@@ -53,6 +54,7 @@ export async function createCampaign(
     amountDisplayMode: "percent_only",
     platformFeeRate: 900,
     appliedDiscountCodeId: null,
+    closedAt: null,
     createdAt: now,
     updatedAt: now,
   }
@@ -65,9 +67,16 @@ export async function getCampaign(campaignId: string) {
   })
 }
 
+/**
+ * For the public page. Hides drafts only.
+ *
+ * A campaign that has ended keeps its URL. Returning nothing would break every
+ * link already sent to a mailing list or posted to a class group, and the page
+ * is where supporters find out how it went.
+ */
 export async function getCampaignBySlug(slug: string) {
   return db.query.campaigns.findFirst({
-    where: and(eq(campaigns.slug, slug), eq(campaigns.status, "active")),
+    where: and(eq(campaigns.slug, slug), ne(campaigns.status, "draft")),
     with: { products: true, design: true, org: true },
   })
 }
@@ -80,12 +89,36 @@ export async function getCampaignsByOrg(orgId: string) {
   })
 }
 
+/**
+ * The R2 key of a design file that a save is about to orphan, or null when
+ * there is nothing to clean up.
+ *
+ * Returning null when the URL is unchanged is the point of this function: the
+ * design form resubmits the same hidden URL on every save, so an unconditional
+ * delete would destroy the design the campaign is currently showing.
+ *
+ * `r2KeyFromUrl` returns null for anything outside our bucket, which keeps the
+ * dev fallback (`public/uploads/`) and any external URL out of reach.
+ */
+export function supersededDesignKey(
+  oldUrl: string | null | undefined,
+  newUrl: string | null | undefined
+): string | null {
+  if (!oldUrl || oldUrl === newUrl) return null
+  return r2KeyFromUrl(oldUrl)
+}
+
 export async function saveDesignStep(
   campaignId: string,
   designFileUrl: string | null,
   mockupUrl?: string | null
 ): Promise<void> {
   const now = new Date()
+  // Captured before the write so the old file can be removed afterwards.
+  // Replacing a design used to leave the previous upload in the bucket with
+  // nothing pointing at it.
+  let orphanedKey: string | null = null
+
   await db.transaction(async (tx) => {
     await tx
       .update(campaigns)
@@ -96,6 +129,7 @@ export async function saveDesignStep(
       where: eq(designs.campaignId, campaignId),
     })
     if (existing) {
+      orphanedKey = supersededDesignKey(existing.designFileUrl, designFileUrl)
       await tx
         .update(designs)
         .set({
@@ -116,6 +150,11 @@ export async function saveDesignStep(
       })
     }
   })
+
+  // After the commit, never inside it: a save that fails must not take the
+  // file with it, and a storage failure must not fail a save that succeeded.
+  // `mockupUrl` is deliberately untouched — those are Printful's files.
+  if (orphanedKey) await deleteFromR2([orphanedKey])
 }
 
 export type ProductInput = {

@@ -4,7 +4,8 @@ import Link from "next/link"
 import { auth } from "@/lib/auth"
 import { requireOrgAccess } from "@/lib/middleware/require-org-access"
 import { getCampaign } from "@/lib/campaigns"
-import { publishCampaignAction } from "./_actions"
+import { publishCampaignAction, closeCampaignAction, reopenCampaignAction } from "./_actions"
+import { LifecycleControls } from "./_lifecycle-controls"
 import { buttonVariants } from "@/components/ui/button"
 import { formatCents, formatDate } from "@/lib/format"
 import { getCatalogItem } from "@/lib/catalog-db"
@@ -40,6 +41,7 @@ export default async function PublishPage({ params, searchParams }: Props) {
   if (!campaign || campaign.orgId !== orgId) notFound()
 
   const isAlreadyLive = campaign.status === "active"
+  const isClosed = campaign.status === "closed"
 
   const productDetails = await Promise.all(
     campaign.products.map((p) => getCatalogItem(p.printfulVariantId))
@@ -52,6 +54,8 @@ export default async function PublishPage({ params, searchParams }: Props) {
   const appUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000"
   const publicUrl = `${appUrl}/${campaign.slug}`
   const boundAction = publishCampaignAction.bind(null, orgId, campaignId)
+  const boundClose = closeCampaignAction.bind(null, orgId, campaignId)
+  const boundReopen = reopenCampaignAction.bind(null, orgId, campaignId)
 
   return (
     <div className="max-w-2xl">
@@ -139,7 +143,30 @@ export default async function PublishPage({ params, searchParams }: Props) {
         </div>
 
         {/* Actions */}
-        {isAlreadyLive ? (
+        {isClosed ? (
+          <div className="rounded-lg border bg-slate-50 border-slate-200 p-6 space-y-3">
+            <h2 className="font-semibold text-slate-800">This campaign has ended</h2>
+            <p className="text-sm text-slate-700">
+              The page below still works and shows your results.
+            </p>
+            <div className="flex gap-3 flex-wrap pt-1">
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonVariants({ variant: "outline" })}
+              >
+                View Results →
+              </a>
+              <Link
+                href={`/dashboard/orgs/${orgId}/campaigns`}
+                className={buttonVariants({ variant: "outline" })}
+              >
+                ← Back to Campaigns
+              </Link>
+            </div>
+          </div>
+        ) : isAlreadyLive ? (
           <div className="rounded-lg border bg-green-50 border-green-200 p-6 space-y-3">
             {justPublished ? (
               <h2 className="font-semibold text-green-800">🎉 Your campaign is live!</h2>
@@ -197,6 +224,15 @@ export default async function PublishPage({ params, searchParams }: Props) {
               </Link>
             )}
           </div>
+        )}
+
+        {isAdmin && (isAlreadyLive || isClosed) && (
+          <LifecycleControls
+            campaignTitle={campaign.title}
+            isClosed={isClosed}
+            closeAction={boundClose}
+            reopenAction={boundReopen}
+          />
         )}
       </div>
     </div>

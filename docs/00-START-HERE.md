@@ -152,16 +152,22 @@ Tシャツなどのグッズを印刷して購入者の自宅に直接発送す�
    | Access level | **A single store** → 自分のストアを選択 |
    | BETA（新API）| **参加しない**（本アプリは v1 API を使用） |
 
-6. **スコープ**は以下の3つだけをチェックする:
+6. **スコープ**は以下をチェックする:
 
    | スコープ | 用途 |
    |---------|------|
    | View and manage orders of the authorized store | 注文の送信・重複確認 |
    | View store products | サイズ・色から商品バリアントを解決、週次の価格同期 |
    | View and manage store files | モックアップ画像の生成 |
+   | **View store webhooks** | **後述の Webhook 設定を確認するため** |
+   | **View and manage store webhooks** | **後述の Webhook 設定を行うため** |
 
-   商品の作成・変更、Webhook の管理は行わないため、それらのスコープは不要です
-   （Webhook はダッシュボードから手動で登録します）。
+   商品の作成・変更は行わないため、そのスコープは不要です。
+
+   > ⚠️ **webhook の2つを飛ばすと、あとで Webhook を設定しようとしたときに
+   > `403 This endpoint requires any of the following scopes granted: webhooks/read!`
+   > で止まります。** その場合はトークンを作り直すことになります（下の「既にトークンを
+   > 発行済みの場合」を参照）。
 
 7. 表示されたトークンをコピー → `PRINTFUL_API_KEY`
 
@@ -539,8 +545,107 @@ Stripe の仕様で、「注文の通知」と「団体の口座連携完了の�
 
 1. [https://www.printful.com](https://www.printful.com) にログイン
 2. **「Settings」** → **「API」** → **「Webhooks」** タブ
-3. Webhook URL: `https://（あなたのURL）.vercel.app/api/webhooks/printful`
-4. 設定を保存 → 表示されるシークレットをコピー → `PRINTFUL_WEBHOOK_SECRET`
+3. Webhook URL: `https://（あなたのURL）.vercel.app/api/webhooks/printful?secret=（好きなランダム文字列）`
+4. **イベントを3つ有効にする** — ここを飛ばすと、対応する機能が動きません:
+
+   | イベント | 有効にしないと起きること |
+   |---|---|
+   | **Package shipped** | 買い手に発送通知メールが届かず、追跡番号も記録されない |
+   | **Order refunded** | Printful が再印刷クレームを認めて**製造費を返金しても、気付けない** |
+   | **Package returned** | 住所不備などで**商品が返送されても、気付けない**。買い手は支払い済みで手元に何も無い |
+
+5. 設定を保存 → URL に入れたランダム文字列を `PRINTFUL_WEBHOOK_SECRET` に登録
+
+> **Order refunded は「買い手への返金」ではありません。** Printful がこちらに製造費を返すイベントです。買い手への返金は別途 Stripe 側で行う必要があり、通知メールにもその旨が書かれています。
+
+> 🔴 **「あなたのURL」= アプリのURLです。Vercel の管理画面のURLではありません。**
+>
+> | URL | 何か | 使う？ |
+> |---|---|---|
+> | `vercel.com/（チーム名）/（プロジェクト名）` | **Vercel の管理画面。** 環境変数やデプロイを設定する、あなただけが見る画面 | ❌ |
+> | `（プロジェクト名）.vercel.app` のような形 | **アプリ本体。** 購入者がアクセスする実際のサイト | ✅ |
+>
+> **調べ方:** Vercel のプロジェクト画面の右上 **「Visit」ボタン**の飛び先。または **Settings → Domains**。
+>
+> **確かめ方:** そのURLに `/api/webhooks/printful` を付けて叩き、**401 が返れば正解**です
+> （認証情報を付けていないので 401 が正しい応答）。404 や HTML が返るならURLが違います。
+>
+> ```bash
+> curl -s -o /dev/null -w "%{http_code}\n" -X POST "https://（アプリURL）/api/webhooks/printful"
+> ```
+>
+> 管理画面のURLを登録すると、**Printful は送信し続けるのにアプリには何も届かず、エラーも出ません。**
+
+#### 画面が見つからない場合（および、既に運用中の場合）
+
+Printful の管理画面はレイアウトが変わることがあります。**確実なのは API で設定する方法**です。ターミナルで次を実行してください（`PRINTFUL_API_KEY` は発行済みのトークン）。
+
+**手順1 — いまの設定を確認する（読むだけ・安全）**
+
+```bash
+curl -s -H "Authorization: Bearer あなたのPRINTFUL_API_KEY" \
+  https://api.printful.com/webhooks
+```
+
+`url` と `types` が返ります。**`types` に `order_refunded` と `package_returned` が無ければ、手順2が必要です。**
+
+**手順2 — 3つまとめて設定する**
+
+```bash
+curl -s -X POST https://api.printful.com/webhooks \
+  -H "Authorization: Bearer あなたのPRINTFUL_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://（あなたのURL）.vercel.app/api/webhooks/printful?secret=（PRINTFUL_WEBHOOK_SECRETと同じ値）",
+    "types": ["package_shipped", "order_refunded", "package_returned"]
+  }'
+```
+
+> ⚠️ **必ず3つ同時に指定してください。** この設定が既存の指定を置き換えるのか追記するのかは公式ドキュメントに明記がありません。3つまとめて送れば、どちらの挙動でも正しい結果になります。1つずつ追加すると、置き換え動作だった場合に `package_shipped` を失い、**発送通知が止まります。**
+
+**手順3 — Printful のシミュレーターで実際に送ってみる**
+
+[https://www.printful.com/api/webhook-simulator](https://www.printful.com/api/webhook-simulator)
+
+- **URL**: 手順2の `"url"` に入れた文字列を**そのままコピー**（`?secret=...` まで含めて）
+- **イベント**: `package_shipped`
+
+送信して **200** が返れば、**Printful からアプリまで本当に届いている**ことの証明です。自分で `curl` する確認より強い証拠になります（Printful 自身が送るため）。
+
+> **200 が返っても、通知メールまでは確かめられません。** シミュレーターが送るのは架空の注文IDなので、アプリは「該当注文なし」で終了し、それでも 200 を返します。確認できるのは**到達と認証**までです。実際のメール送信は本物の注文を待つ必要があります。
+
+**手順4 — 登録内容を確認する**
+
+手順1をもう一度実行し、`types` に3つ揃っていること、`secret=` の値が Vercel の環境変数と一致していることを確認してください。
+
+> ⚠️ **secret を後から変更した場合は、手順2をやり直してください。** 環境変数だけ変えて登録を更新しないと、Printful は古い値で送信し、アプリは 401 で弾きます。**この失敗はどこにもエラーが出ません。**
+
+#### 既にトークンを発行済みで、webhook スコープが無い場合
+
+手順1が次のエラーで止まります。
+
+```
+403 This endpoint requires any of the following scopes granted: webhooks/read!
+```
+
+**本番で使っているトークンは絶対に削除・失効させないでください。** 消すと全注文の履行が止まります。代わりに、この設定作業専用のトークンをもう1本作ります。
+
+1. [developers.printful.com](https://developers.printful.com) → 左メニュー **Tokens** → **Add new token**
+   （`printful.com` のダッシュボードとは**別サイト**です。ダッシュボード側に API の画面はありません）
+2. Access level は **A single store** → 対象ストアを選択
+3. スコープは **下2つだけ**にチェックする。他は全部外したままにする:
+   - **View store webhooks**
+   - **View and manage store webhooks**
+4. そのトークンで上の手順1〜4を実行する
+5. **このトークンは削除せず残しておく。** **Vercel の `PRINTFUL_API_KEY` は変更しないこと**
+
+こうすれば、本番のトークンに一切触れずに Webhook を設定できます。本番トークンへの
+webhook スコープの取り込みは、**2年ごとのトークン更新のタイミングで行えば十分です**
+（更新時は Vercel の差し替えが手順に含まれるため、そこで一緒にやるのが安全）。
+
+> **なぜ残すのか:** webhook スコープだけのトークンは注文にも商品にも触れないため、
+> 残しておく危険がありません。逆に削除すると、次に登録内容を確認したくなったときに
+> 作り直しになります。**また、削除が webhook 登録そのものを消すかどうかは未確認です。**
 
 ### 4-4. Vercel に Webhook シークレットを登録する
 
