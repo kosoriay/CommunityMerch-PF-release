@@ -4,6 +4,10 @@ import { eq } from "drizzle-orm"
 import { stripe } from "@/lib/providers/stripe"
 import { isRefundable } from "@/lib/order-status"
 import { orderRefundBreakdown } from "@/lib/order-economics"
+import { getOrgMembers } from "@/lib/orgs"
+import { sendRefundNotificationEmail } from "@/lib/email"
+import { getOrCreateConfig } from "@/lib/platform-config"
+import { shortOrderId } from "@/lib/order-search"
 
 export { refundBreakdown, orderRefundBreakdown } from "@/lib/order-economics"
 export type { RefundBreakdown } from "@/lib/order-economics"
@@ -121,7 +125,65 @@ export async function refundOrder(params: {
     })
     .where(eq(orders.id, orderId))
 
+  await notifyOrgOfRefund({
+    orgId: order.campaign.orgId,
+    campaignTitle: order.campaign.title,
+    orderId,
+    organizationReturnsCents,
+  })
+
   return { ok: true, refundId: refund.id }
+}
+
+/**
+ * Tell the organization's admins that money left their share.
+ *
+ * Until this existed, an organization learned about a refund only by noticing
+ * its total had dropped.
+ *
+ * Admins only: refunds are financial information, and members and students
+ * cannot see it in the dashboard. Email must not route around that.
+ *
+ * Best-effort. The refund has already settled in Stripe by the time this runs,
+ * so a failure here must not surface as a failed refund — that would tell the
+ * operator to refund a second time.
+ */
+async function notifyOrgOfRefund(params: {
+  orgId: string
+  campaignTitle: string
+  orderId: string
+  organizationReturnsCents: number
+}): Promise<void> {
+  try {
+    const [members, org, config] = await Promise.all([
+      getOrgMembers(params.orgId),
+      db.query.organizations.findFirst({ where: eq(organizations.id, params.orgId) }),
+      getOrCreateConfig(),
+    ])
+
+    const admins = members.filter((m) => m.role === "admin")
+    if (admins.length === 0) {
+      console.warn(`[refund-notification] no admins to notify for org ${params.orgId}`)
+      return
+    }
+
+    const refundedAt = new Date()
+    await Promise.all(
+      admins.map((admin) =>
+        sendRefundNotificationEmail(admin.user.email, {
+          orgName: org?.name ?? "your organization",
+          campaignTitle: params.campaignTitle,
+          orderRef: shortOrderId(params.orderId),
+          organizationReturns: formatCents(params.organizationReturnsCents),
+          refundedAt,
+          supportEmail: config.supportEmail,
+          platformName: config.platformName,
+        })
+      )
+    )
+  } catch (err) {
+    console.error(`[refund-notification] could not notify org ${params.orgId}`, err)
+  }
 }
 
 /** How far short the connected account is of covering a reversal, in cents. */

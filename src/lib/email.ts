@@ -290,3 +290,51 @@ export async function sendPrintfulResolutionEmail(
     html,
   })
 }
+
+/**
+ * Tell an organization that one of its orders was refunded.
+ *
+ * Facts only. `refundReason` is free text written by the platform operator for
+ * the audit trail, and the organization's own order list does not show it — an
+ * email that did would leak internal notes through a side door. If they need
+ * the detail they can ask.
+ */
+export async function sendRefundNotificationEmail(
+  to: string,
+  data: {
+    orgName: string
+    campaignTitle: string
+    orderRef: string
+    organizationReturns: string
+    refundedAt: Date
+    supportEmail: string | null
+    platformName: string
+  }
+): Promise<void> {
+  const html = `
+    <h2>An order was refunded</h2>
+    <p>A buyer on <strong>${escapeHtml(data.campaignTitle)}</strong> has been refunded.</p>
+    <p>
+      <strong>Order:</strong> ${escapeHtml(data.orderRef)}<br>
+      <strong>Returned from ${escapeHtml(data.orgName)}'s share:</strong> ${escapeHtml(data.organizationReturns)}<br>
+      <strong>Date:</strong> ${data.refundedAt.toLocaleDateString()}
+    </p>
+    <p>This order no longer counts toward your total raised.</p>
+    ${data.supportEmail
+      ? `<p style="font-size:12px;color:#666">Questions about this refund? Contact
+         <a href="mailto:${escapeHtml(data.supportEmail)}">${escapeHtml(data.supportEmail)}</a>.</p>`
+      : ""}
+  `
+
+  if (!resend) {
+    console.log(`[email:refund-notification] to=${to} order=${data.orderRef} returns=${data.organizationReturns}`)
+    return
+  }
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `An order was refunded — ${data.campaignTitle}`,
+    html,
+  })
+}
