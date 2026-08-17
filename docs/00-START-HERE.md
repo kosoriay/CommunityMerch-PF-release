@@ -159,8 +159,8 @@ Tシャツなどのグッズを印刷して購入者の自宅に直接発送す�
    | View and manage orders of the authorized store | 注文の送信・重複確認 |
    | View store products | サイズ・色から商品バリアントを解決、週次の価格同期 |
    | View and manage store files | モックアップ画像の生成 |
-   | **View webhook configuration**（`webhooks/read`） | **後述の Webhook 設定を確認するため** |
-   | **Manage webhook configuration**（`webhooks/write`） | **後述の Webhook 設定を行うため** |
+   | **View store webhooks** | **後述の Webhook 設定を確認するため** |
+   | **View and manage store webhooks** | **後述の Webhook 設定を行うため** |
 
    商品の作成・変更は行わないため、そのスコープは不要です。
 
@@ -599,12 +599,18 @@ curl -s -X POST https://api.printful.com/webhooks \
 
 **本番で使っているトークンは絶対に削除・失効させないでください。** 消すと全注文の履行が止まります。代わりに、この設定作業専用のトークンをもう1本作ります。
 
-1. developers.printful.com → **Private tokens** → **Create new token**
-2. スコープは **webhook の2つだけ**（`webhooks/read` と `webhooks/write`）で構いません
-3. そのトークンで上の手順1〜3を実行する
-4. 終わったらこのトークンは破棄してよい。**Vercel の `PRINTFUL_API_KEY` は変更しないこと**
+1. [developers.printful.com](https://developers.printful.com) → 左メニュー **Tokens** → **Add new token**
+   （`printful.com` のダッシュボードとは**別サイト**です。ダッシュボード側に API の画面はありません）
+2. Access level は **A single store** → 対象ストアを選択
+3. スコープは **下2つだけ**にチェックする。他は全部外したままにする:
+   - **View store webhooks**
+   - **View and manage store webhooks**
+4. そのトークンで上の手順1〜3を実行する
+5. **終わったら Tokens 一覧からこのトークンを削除する。** **Vercel の `PRINTFUL_API_KEY` は変更しないこと**
 
-こうすれば、本番のトークンに一切触れずに Webhook を設定できます。
+こうすれば、本番のトークンに一切触れずに Webhook を設定できます。本番トークンへの
+webhook スコープの取り込みは、**2年ごとのトークン更新のタイミングで行えば十分です**
+（更新時は Vercel の差し替えが手順に含まれるため、そこで一緒にやるのが安全）。
 
 ### 4-4. Vercel に Webhook シークレットを登録する
 
