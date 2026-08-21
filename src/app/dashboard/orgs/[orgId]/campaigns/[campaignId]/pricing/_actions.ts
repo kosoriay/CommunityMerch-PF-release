@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth"
 import { requireOrgAccess } from "@/lib/middleware/require-org-access"
 import { getCampaign, savePricingStep } from "@/lib/campaigns"
 import { getCatalogItem } from "@/lib/catalog-db"
+import { defaultColorFor } from "@/lib/cart-options"
 
 export async function savePricingAction(
   orgId: string,
@@ -42,7 +43,12 @@ export async function savePricingAction(
     }
 
     const colorsRaw = formData.getAll(`colors_${variantId}`) as string[]
-    const availableColors = colorsRaw.length > 0 ? colorsRaw : ["White"]
+    // 既定は商品ごとに違う。"White" は7商品で誤りになる（設計 §3.2）。
+    const fallback = defaultColorFor(catalogItem)
+    if (colorsRaw.length === 0 && !fallback) {
+      return { error: `${catalogItem.name} has no colours available.` }
+    }
+    const availableColors = colorsRaw.length > 0 ? colorsRaw : [fallback!]
 
     productList.push({
       printfulVariantId: variantId,

@@ -1,12 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { formatCents } from "@/lib/format"
 import { getColorImageFromItem, type CatalogItem } from "@/lib/catalog-utils"
+import {
+  sizesFor, colorsFor, isSellablePair, initialSelectedSizes,
+  cartItemCount, formatOrderHeading, addedToCartMessage, ADDED_FEEDBACK_MS,
+} from "@/lib/cart-options"
 import type { CartItem } from "@/lib/orders"
-
-const SIZES = ["XS", "S", "M", "L", "XL", "2XL"] as const
 
 type Product = {
   id: string
@@ -14,6 +16,8 @@ type Product = {
   retailPrice: number
   availableColors: string[]
   mockupUrl: string | null
+  /** 色別モックアップ `{色名: URL}`。未生成・未接続なら null。 */
+  mockupUrls?: Record<string, string> | null
 }
 
 type Props = {
@@ -25,22 +29,36 @@ type Props = {
 
 export function CampaignCart({ campaignId, orgId, products, catalog }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
-  const [selectedSizes, setSelectedSizes] = useState<Record<string, string>>({})
+  const [selectedSizes, setSelectedSizes] = useState<Record<string, string>>(
+    () => initialSelectedSizes(products, catalog)
+  )
   const [selectedQty, setSelectedQty] = useState<Record<string, number>>({})
   const [selectedColors, setSelectedColors] = useState<Record<string, string>>(
-    () => Object.fromEntries(products.map((p) => [p.id, p.availableColors[0] ?? "White"]))
+    () => Object.fromEntries(products.map((p) => [
+      p.id, colorsFor(catalog[p.printfulVariantId], p.availableColors)[0] ?? "",
+    ]))
   )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [addedProductId, setAddedProductId] = useState<string | null>(null)
+  const [announcement, setAnnouncement] = useState("")
+  const addedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (addedTimer.current) clearTimeout(addedTimer.current) }, [])
 
   function addToCart(product: Product) {
-    const size = selectedSizes[product.id]
-    if (!size) {
-      const name = catalog[product.printfulVariantId]?.name ?? product.printfulVariantId
-      setError(`Please select a size for ${name}`)
+    const catalogItem = catalog[product.printfulVariantId]
+    const size = selectedSizes[product.id] ?? ""
+    const color = selectedColors[product.id] ?? ""
+
+    // 画面と決済で同じ関数を見る。ここで通るものは /api/checkout の①も通る。
+    // ②（団体の品揃え）は colorsFor で既に絞ってあるので、ここには現れない。
+    if (!isSellablePair(catalogItem, size, color)) {
+      const name = catalogItem?.name ?? product.printfulVariantId
+      setError(size ? `That option is not available for ${name}` : `Please select a size for ${name}`)
       return
     }
-    const color = selectedColors[product.id] ?? product.availableColors[0] ?? "White"
+
     const qty = selectedQty[product.id] ?? 1
     setError(null)
     setCart((prev) => {
@@ -54,17 +72,23 @@ export function CampaignCart({ campaignId, orgId, products, catalog }: Props) {
             : i
         )
       }
-      return [
-        ...prev,
-        {
-          campaignProductId: product.id,
-          size,
-          quantity: qty,
-          unitPriceCents: product.retailPrice,
-          color,
-        },
-      ]
+      return [...prev, {
+        campaignProductId: product.id,
+        size,
+        quantity: qty,
+        unitPriceCents: product.retailPrice,
+        color,
+      }]
     })
+
+    // 押した場所で結果を返す。モバイルではカート要約（:211）が画面外にあり、
+    // 何も起きていないように見える、というのが報告 #1 だった。
+    setAddedProductId(product.id)
+    setAnnouncement(addedToCartMessage({
+      name: catalogItem?.name ?? product.printfulVariantId, color, size, quantity: qty,
+    }))
+    if (addedTimer.current) clearTimeout(addedTimer.current)
+    addedTimer.current = setTimeout(() => setAddedProductId(null), ADDED_FEEDBACK_MS)
   }
 
   function removeFromCart(campaignProductId: string, size: string, color: string) {
@@ -98,13 +122,25 @@ export function CampaignCart({ campaignId, orgId, products, catalog }: Props) {
 
   return (
     <div className="space-y-6">
+      {/* 視覚的には出さない。押した結果を読み上げるためだけの領域。 */}
+      <p aria-live="polite" className="sr-only">{announcement}</p>
+
       {/* Product card grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {products.map((product) => {
           const catalogItem = catalog[product.printfulVariantId]
-          const selectedColor = selectedColors[product.id] ?? product.availableColors[0] ?? "White"
-          const catalogImageUrl = catalogItem ? getColorImageFromItem(catalogItem, selectedColor) : ""
-          const displayImageUrl = product.mockupUrl ?? catalogImageUrl
+          const sizes = sizesFor(catalogItem)
+          const colors = colorsFor(catalogItem, product.availableColors)
+          const sellable = sizes.length > 0 && colors.length > 0
+          const selectedColor = selectedColors[product.id] ?? colors[0] ?? ""
+          const selectedSize = selectedSizes[product.id] ?? ""
+          const canAdd = isSellablePair(catalogItem, selectedSize, selectedColor)
+          const justAdded = addedProductId === product.id
+          // モックアップがあればロゴ入りのその色、無くても少なくとも色は一致する。
+          // 「色を変えても画像が変わらない商品がある」はどちらの分岐でも解消する。
+          const displayImageUrl =
+            product.mockupUrls?.[selectedColor]
+            ?? (catalogItem ? getColorImageFromItem(catalogItem, selectedColor) : "")
 
           return (
             <div
@@ -132,75 +168,96 @@ export function CampaignCart({ campaignId, orgId, products, catalog }: Props) {
                   <p className="font-bold text-sm text-[#2E4057]">{formatCents(product.retailPrice)}</p>
                 </div>
 
-                {/* Color swatches */}
-                {product.availableColors.length > 1 && (
-                  <div className="flex gap-1.5 flex-wrap items-center">
-                    {product.availableColors.map((colorName) => {
-                      const colorData = catalogItem?.availableColors.find((c) => c.name === colorName)
-                      const isSelected = selectedColor === colorName
-                      return (
-                        <button
-                          key={colorName}
-                          type="button"
-                          title={colorName}
-                          onClick={() =>
-                            setSelectedColors((prev) => ({ ...prev, [product.id]: colorName }))
-                          }
-                          className={`w-5 h-5 rounded-full border-2 transition-transform ${
-                            isSelected ? "border-blue-500 scale-110" : "border-gray-200"
-                          }`}
-                          style={{ backgroundColor: colorData?.hex ?? "#FFFFFF" }}
-                        />
-                      )
-                    })}
-                    <span className="text-xs text-gray-500">{selectedColor}</span>
-                  </div>
+                {sellable ? (
+                  <>
+                    {colors.length > 1 ? (
+                      <div className="flex gap-1.5 flex-wrap items-center">
+                        {colors.map((colorName) => {
+                          const colorData = catalogItem?.availableColors.find((c) => c.name === colorName)
+                          const isSelected = selectedColor === colorName
+                          return (
+                            <button
+                              key={colorName}
+                              type="button"
+                              title={colorName}
+                              onClick={() => setSelectedColors((prev) => ({ ...prev, [product.id]: colorName }))}
+                              className={`w-5 h-5 rounded-full border-2 transition-transform ${
+                                isSelected ? "border-blue-500 scale-110" : "border-gray-200"
+                              }`}
+                              style={{ backgroundColor: colorData?.hex ?? "#FFFFFF" }}
+                            />
+                          )
+                        })}
+                        <span className="text-xs text-gray-500">{selectedColor}</span>
+                      </div>
+                    ) : (
+                      // 1色しか無いことは、依然として何が届くかについての事実である。
+                      // ここは sellable の内側なので colors は必ず1つ以上ある。
+                      <p className="text-xs text-gray-500">Color: {colors[0]}</p>
+                    )}
+
+                    {sizes.length > 1 ? (
+                      <div className="flex gap-1 flex-wrap">
+                        {sizes.map((size) => (
+                          <button
+                            key={size}
+                            type="button"
+                            onClick={() => setSelectedSizes((prev) => ({ ...prev, [product.id]: size }))}
+                            className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                              selectedSize === size
+                                ? "bg-[#2E4057] text-white border-[#2E4057]"
+                                : "border-slate-200 hover:border-slate-400"
+                            }`}
+                          >
+                            {size}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      // 無効化したボタンではなくラベルにする。無効ボタンは「押し損ねた
+                      // 操作」に見えるが、伝えたいのは操作ではなく商品情報である。
+                      <p className="text-xs text-gray-500">Size: {sizes[0]}</p>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedQty[product.id] ?? 1}
+                        onChange={(e) =>
+                          setSelectedQty((prev) => ({ ...prev, [product.id]: parseInt(e.target.value) }))
+                        }
+                        className="border rounded px-2 py-1 text-xs"
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => addToCart(product)}
+                        className={`flex-1 text-xs font-medium transition-colors ${
+                          justAdded ? "text-green-600"
+                            : canAdd ? "text-[#378ADD] hover:underline"
+                            : "text-gray-300 cursor-not-allowed"
+                        }`}
+                        disabled={!canAdd}
+                      >
+                        {justAdded ? "Added ✓"
+                          : canAdd ? "Add to cart"
+                          : sizes.length > 1 ? "Select a size first"
+                          : "Unavailable"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  // sizes か colors が空。旧来の固定サイズ一覧にも既定色文字列にも
+                  // フォールバックしない（設計 §7.6）。
+                  //
+                  // サイズ・色の選択肢もここには出さない。買う手段が無いカードで
+                  // 操作だけが反応する（押すとサイズが点灯するのに、その先が無い）
+                  // のは、このPRが直しに来た報告 #1 と同じ形になる。2026-08-21 の
+                  // ブラウザ実測で実際にその状態を踏んだため、ゲートの内側へ移した。
+                  <p className="text-xs text-gray-500">Currently unavailable</p>
                 )}
-
-                {/* Size selection */}
-                <div className="flex gap-1 flex-wrap">
-                  {SIZES.map((size) => (
-                    <button
-                      key={size}
-                      type="button"
-                      onClick={() => setSelectedSizes((prev) => ({ ...prev, [product.id]: size }))}
-                      className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                        selectedSizes[product.id] === size
-                          ? "bg-[#2E4057] text-white border-[#2E4057]"
-                          : "border-slate-200 hover:border-slate-400"
-                      }`}
-                    >
-                      {size}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Quantity + add to cart */}
-                <div className="flex items-center gap-2">
-                  <select
-                    value={selectedQty[product.id] ?? 1}
-                    onChange={(e) =>
-                      setSelectedQty((prev) => ({ ...prev, [product.id]: parseInt(e.target.value) }))
-                    }
-                    className="border rounded px-2 py-1 text-xs"
-                  >
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => addToCart(product)}
-                    className={`flex-1 text-xs font-medium transition-colors ${
-                      selectedSizes[product.id]
-                        ? "text-[#378ADD] hover:underline"
-                        : "text-gray-300 cursor-not-allowed"
-                    }`}
-                    disabled={!selectedSizes[product.id]}
-                  >
-                    {selectedSizes[product.id] ? "Add to cart" : "Select a size first"}
-                  </button>
-                </div>
               </div>
             </div>
           )
@@ -210,7 +267,7 @@ export function CampaignCart({ campaignId, orgId, products, catalog }: Props) {
       {/* Cart summary */}
       {cart.length > 0 && (
         <div className="rounded-lg border-2 border-[#2E4057] bg-white p-4 space-y-3">
-          <h3 className="font-semibold text-[#2E4057]">Your order</h3>
+          <h3 className="font-semibold text-[#2E4057]">{formatOrderHeading(cartItemCount(cart))}</h3>
           <ul className="space-y-2">
             {cart.map((item) => {
               const product = products.find((p) => p.id === item.campaignProductId)
@@ -265,7 +322,7 @@ export function CampaignCart({ campaignId, orgId, products, catalog }: Props) {
 
       {cart.length === 0 && !error && (
         <div className="text-center text-sm text-muted-foreground py-2">
-          Select a size and click &quot;Add to cart&quot; to place your order.
+          Choose your options and click &quot;Add to cart&quot; to place your order.
         </div>
       )}
     </div>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { db } from "@/lib/db/client"
 import { campaigns, campaignProducts, designs } from "@/lib/db/schema"
-import { and, eq, lt, isNotNull, gt } from "drizzle-orm"
+import { and, eq, lt, isNotNull, isNull, gt, or } from "drizzle-orm"
 import { generateCampaignMockups } from "@/lib/mockup-generator"
 import { materializeExpiredCampaigns } from "@/lib/campaign-lifecycle"
 import { sweepOrphanedUploads } from "@/lib/orphaned-uploads"
@@ -45,11 +45,13 @@ export async function GET(req: Request): Promise<NextResponse> {
   for (const campaign of closedCampaigns) {
     await db
       .update(campaignProducts)
-      .set({ mockupUrl: null, mockupGeneratedAt: null })
+      .set({ mockupUrl: null, mockupUrls: null, mockupGeneratedAt: null })
       .where(
         and(
           eq(campaignProducts.campaignId, campaign.id),
-          isNotNull(campaignProducts.mockupUrl)
+          // 代表色の生成だけが失敗した行は mockup_urls にしか値が無い。
+          // mockupUrl だけで絞ると永久に掃除されない（設計 §8.5）。
+          or(isNotNull(campaignProducts.mockupUrl), isNotNull(campaignProducts.mockupUrls))
         )
       )
   }
@@ -71,7 +73,9 @@ export async function GET(req: Request): Promise<NextResponse> {
   for (const campaign of staleCampaigns) {
     if (!staleSeen.has(campaign.id)) {
       staleSeen.add(campaign.id)
-      await generateCampaignMockups(campaign.id)
+      // 60日超で既に mockupGeneratedAt が付いている行を選んでいる。force なしでは
+      // generateCampaignMockups 自身のガードに弾かれ、この分岐は何もしない。
+      await generateCampaignMockups(campaign.id, { force: true })
     }
   }
 
@@ -92,6 +96,43 @@ export async function GET(req: Request): Promise<NextResponse> {
   const updatedSeen = new Set<string>()
   for (const campaign of designUpdatedCampaigns) {
     if (!updatedSeen.has(campaign.id) && !staleSeen.has(campaign.id)) {
+      updatedSeen.add(campaign.id)
+      // 同上。この分岐が選ぶ行も mockupGeneratedAt 済みで、force が無いと
+      // 新しいロゴがアップロードされても古いモックアップが永久に残る。
+      await generateCampaignMockups(campaign.id, { force: true })
+    }
+  }
+
+  // 4. Never generated. savePricingStep marks a product this way when the
+  //    organisation adds a colour, and a freshly published campaign starts here.
+  //    Paths 2 and 3 both filter on isNotNull(mockupGeneratedAt), so a null row
+  //    falls through both and would otherwise never be picked up at all.
+  //
+  //    mockupAttemptedAt is what makes this converge. A beanie is skipped on
+  //    purpose (its print area is not modelled — see mockup-generator.ts), so its
+  //    mockupGeneratedAt stays null forever. Without the attempt stamp this branch
+  //    would re-select that campaign every single day and overwrite the tee's
+  //    working mockups alongside it. With it, a skipped row is retried weekly.
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const neverGenerated = await db
+    .select({ id: campaigns.id })
+    .from(campaigns)
+    .innerJoin(campaignProducts, eq(campaignProducts.campaignId, campaigns.id))
+    .innerJoin(designs, eq(designs.campaignId, campaigns.id))
+    .where(
+      and(
+        eq(campaigns.status, "active"),
+        isNull(campaignProducts.mockupGeneratedAt),
+        or(
+          isNull(campaignProducts.mockupAttemptedAt),
+          lt(campaignProducts.mockupAttemptedAt, sevenDaysAgo)
+        ),
+        isNotNull(designs.designFileUrl)
+      )
+    )
+
+  for (const campaign of neverGenerated) {
+    if (!staleSeen.has(campaign.id) && !updatedSeen.has(campaign.id)) {
       updatedSeen.add(campaign.id)
       await generateCampaignMockups(campaign.id)
     }

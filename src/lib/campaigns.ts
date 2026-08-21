@@ -1,6 +1,6 @@
 import { db } from "@/lib/db/client"
 import { campaigns, campaignProducts, designs, organizations } from "@/lib/db/schema"
-import { and, count, desc, eq, ne } from "drizzle-orm"
+import { and, count, desc, eq, inArray, ne } from "drizzle-orm"
 import { getActiveCodeForOrg, getPlatformFeeRate } from "@/lib/discount-codes"
 import { r2KeyFromUrl, deleteFromR2 } from "@/lib/providers/r2"
 
@@ -162,9 +162,28 @@ export type ProductInput = {
   retailPrice: number
   podCost: number
   displayOrder: number
-  availableColors?: string[]
+  availableColors: string[]
 }
 
+/**
+ * 価格ステップの保存。
+ *
+ * 以前は campaign_products を全行 DELETE して再 INSERT していた。2通りに壊れる。
+ *
+ * (A) モックアップ列が再 INSERT の値に無いので、**価格を1円直すだけで生成済みの
+ *     モックアップが全部消えた。** 生成は成功しているので警告も出ない。
+ * (B) order_items.campaign_product_id は ON DELETE NO ACTION（schema.ts:211）で
+ *     外部キーは有効（実測 PRAGMA foreign_keys = 1）。参照されている行があると
+ *     DELETE が FOREIGN KEY constraint failed を投げ、**保存が丸ごと失敗した。**
+ *     引き金は「売れたこと」ではなく order_items に行があることで、
+ *     createPendingOrder は Stripe セッションより前にその行を pending で書く。
+ *     **買い手が Checkout を押して立ち去るだけで団体は締め出された。**
+ *     savePricingAction（pricing/_actions.ts:70）は try/catch していないので、
+ *     団体には原因を説明しない汎用エラーしか出なかった。
+ *
+ * upsert は campaign_products.id を保存するので、参照されている行を削除しない。
+ * (A) と (B) の両方が直る。
+ */
 export async function savePricingStep(
   campaignId: string,
   productList: ProductInput[],
@@ -174,20 +193,62 @@ export async function savePricingStep(
 ): Promise<void> {
   const now = new Date()
   await db.transaction(async (tx) => {
-    await tx.delete(campaignProducts).where(eq(campaignProducts.campaignId, campaignId))
+    const existing = await tx.select().from(campaignProducts)
+      .where(eq(campaignProducts.campaignId, campaignId))
+
+    const keep = new Set(productList.map((p) => p.printfulVariantId))
+
+    // 1. 選択から外れた商品の行だけを消す。残る行は触らない。
+    const toDelete = existing.filter((row) => !keep.has(row.printfulVariantId))
+    if (toDelete.length > 0) {
+      await tx.delete(campaignProducts).where(inArray(campaignProducts.id, toDelete.map((r) => r.id)))
+    }
+
+    const byVariant = new Map(existing.map((r) => [r.printfulVariantId, r]))
+
     for (const p of productList) {
-      await tx.insert(campaignProducts).values({
-        id: crypto.randomUUID(),
-        campaignId,
-        printfulVariantId: p.printfulVariantId,
+      const row = byVariant.get(p.printfulVariantId)
+      if (!row) {
+        await tx.insert(campaignProducts).values({
+          id: crypto.randomUUID(),
+          campaignId,
+          printfulVariantId: p.printfulVariantId,
+          retailPrice: p.retailPrice,
+          podCost: p.podCost,
+          displayOrder: p.displayOrder,
+          availableColors: JSON.stringify(p.availableColors),
+        })
+        continue
+      }
+
+      const before = JSON.parse(row.availableColors) as string[]
+      const after = p.availableColors
+      const removed = before.filter((c) => !after.includes(c))
+      const added = after.filter((c) => !before.includes(c))
+
+      // 2. 落ちた色のモックアップは使えないので捨てる。他は素通し。
+      let nextMockupUrls = row.mockupUrls
+      if (removed.length > 0 && row.mockupUrls) {
+        const map = JSON.parse(row.mockupUrls) as Record<string, string>
+        for (const color of removed) delete map[color]
+        nextMockupUrls = Object.keys(map).length > 0 ? JSON.stringify(map) : null
+      }
+
+      // 3. 価格・原価・並び・色だけ更新する。**mockupUrl と mockupGeneratedAt には
+      //    触らない**（色が増えた場合を除く）。ここが (A) の修正である。
+      await tx.update(campaignProducts).set({
         retailPrice: p.retailPrice,
         podCost: p.podCost,
         displayOrder: p.displayOrder,
-        availableColors: JSON.stringify(p.availableColors ?? ["White"]),
-      })
+        availableColors: JSON.stringify(after),
+        mockupUrls: nextMockupUrls,
+        // 色が増えたら再生成待ちにする。これを拾うのは cron 分岐4（Task 10）で
+        // あり、既存2本は isNotNull で絞るので NULL は掛からない（設計 §8.6）。
+        ...(added.length > 0 ? { mockupGeneratedAt: null } : {}),
+      }).where(eq(campaignProducts.id, row.id))
     }
-    await tx
-      .update(campaigns)
+
+    await tx.update(campaigns)
       .set({ goalAmount, deadline, amountDisplayMode, updatedAt: now })
       .where(eq(campaigns.id, campaignId))
   })

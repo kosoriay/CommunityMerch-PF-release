@@ -145,11 +145,32 @@ export const campaignProducts = sqliteTable("campaign_products", {
   retailPrice: integer("retail_price").notNull(),
   podCost: integer("pod_cost").notNull(),
   displayOrder: integer("display_order").notNull().default(0),
+  // DEFAULT が発火しないのは NOT NULL だからではない。NOT NULL 列でも INSERT が
+  // 列を省略すれば DEFAULT が入る。発火しないのは createPendingOrder
+  // （orders.ts:34-42）と savePricingStep（campaigns.ts）が必ず列を明示して
+  // INSERT しているからである。**安全網ではなく、たまたま踏まれていない地雷。**
+  // 将来 INSERT から列を落とした者が現れれば復活する（設計 §7.7）。
   availableColors: text("available_colors").notNull().default('["White"]'),
   mockupUrl: text("mockup_url"),
   mockupGeneratedAt: integer("mockup_generated_at", { mode: "timestamp" }),
+  // 色別モックアップ（JSON `{色名: URL}`）。NULL は未生成。
+  // mockupUrl は代表色の URL として残す — mockup-cleanup/route.ts:48,52 と
+  // (public)/[slug]/page.tsx:152 が読んでいる（設計 §8.1）。
+  mockupUrls: text("mockup_urls"),
+  // 生成を**試みた**時刻。成否もスキップも問わない。
+  //
+  // mockupGeneratedAt とは別物である。placement 未対応で意図的にスキップした
+  // 非アパレル行は mockupGeneratedAt が永久に NULL になるため、それだけを条件に
+  // すると cron 分岐4が同じキャンペーンを毎日選び、隣のTシャツの成功済み
+  // mockup_urls を毎日上書きする。この列が再試行を週1回に収束させる（設計 §8.6）。
+  mockupAttemptedAt: integer("mockup_attempted_at", { mode: "timestamp" }),
 }, (t) => [
   index("campaign_products_campaign_id_idx").on(t.campaignId),
+  // 1キャンペーンに同じ商品が2行あってはならない、というデータ整合性の保証。
+  // savePricingStep（Task 9）は「既存行を読んで振り分ける」実装であり
+  // onConflictDoUpdate は使わないが、その振り分けは
+  // (campaign_id, printful_variant_id) が一意であることに依存している。
+  uniqueIndex("campaign_products_campaign_variant_unique").on(t.campaignId, t.printfulVariantId),
 ])
 
 export const designs = sqliteTable("designs", {
@@ -210,6 +231,11 @@ export const orderItems = sqliteTable("order_items", {
   orderId: text("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
   campaignProductId: text("campaign_product_id").notNull().references(() => campaignProducts.id),
   size: text("size").notNull(),
+  // DEFAULT が発火しないのは NOT NULL だからではない。NOT NULL 列でも INSERT が
+  // 列を省略すれば DEFAULT が入る。発火しないのは createPendingOrder
+  // （orders.ts:34-42）と savePricingStep（campaigns.ts）が必ず列を明示して
+  // INSERT しているからである。**安全網ではなく、たまたま踏まれていない地雷。**
+  // 将来 INSERT から列を落とした者が現れれば復活する（設計 §7.7）。
   color: text("color").notNull().default("White"),
   quantity: integer("quantity").notNull(),
   unitPrice: integer("unit_price").notNull(),
@@ -307,6 +333,16 @@ export const printfulCatalog = sqliteTable("printful_catalog", {
   displayOrder: integer("display_order").notNull().default(0),
   isEnabled: integer("is_enabled", { mode: "boolean" }).notNull().default(true),
   defaultMockupVariantId: integer("default_mockup_variant_id"),
+  // 販売可能サイズ（JSON配列）。'[]' はフェイルクローズ（売らない）。
+  //
+  // DEFAULT '[]' は「正しい値」ではない。SQLite が既存行のあるテーブルに
+  // NOT NULL 列を足すとき default を要求するので置いてある。値は
+  // scripts/seed-catalog.ts が入れ、入らなければ同スクリプトが非0終了して
+  // ビルドを落とす（設計 §10.3）。
+  sizes: text("sizes").notNull().default("[]"),
+  // 対としては存在しない {size, color} の JSON 配列。こちらの '[]' は
+  // 「除外なし」という正しい値である（設計 §7.2）。
+  unavailablePairs: text("unavailable_pairs").notNull().default("[]"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 })

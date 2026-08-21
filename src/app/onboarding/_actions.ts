@@ -7,6 +7,7 @@ import { createOrg, validateOrgName } from "@/lib/orgs"
 import { validateUserName, updateUserName } from "@/lib/users"
 import { createCampaign, savePricingStep, type ProductInput } from "@/lib/campaigns"
 import { getCatalogItem } from "@/lib/catalog-db"
+import { defaultColorFor } from "@/lib/cart-options"
 import { requireOrgAccess } from "@/lib/middleware/require-org-access"
 
 export type OnboardingState = { error?: string } | undefined
@@ -82,12 +83,15 @@ export async function completeOnboardingAction(
       if (!item) continue
       const retail = Math.round(parseFloat(dp.retailDollars || "0") * 100)
       if (!Number.isFinite(retail) || retail < 100) continue
+      // 既定は商品ごとに違う。"White" は7商品で誤りになる（設計 §3.2）。
+      const fallback = defaultColorFor(item)
+      if (dp.colors.length === 0 && !fallback) continue
       productList.push({
         printfulVariantId: dp.variantId,
         retailPrice: retail,
         podCost: item.podCostCents,
         displayOrder: i,
-        availableColors: dp.colors.length > 0 ? dp.colors : ["White"],
+        availableColors: dp.colors.length > 0 ? dp.colors : [fallback!],
       })
     }
     if (productList.length > 0) {

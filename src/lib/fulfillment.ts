@@ -3,7 +3,6 @@ import { alertFulfillmentFailure } from "@/lib/fulfillment-alerts"
 import { getPrintfulVariantId, submitPrintfulOrder } from "@/lib/providers/printful"
 import { sendOrderConfirmationEmail } from "@/lib/email"
 import { getCatalogItem } from "@/lib/catalog-db"
-import { PRINTFUL_DEFAULT_COLOR } from "@/lib/printful-catalog"
 import { getOrCreateConfig } from "@/lib/platform-config"
 import { buildPackingSlip } from "@/lib/packing-slip"
 import type { PrintfulPackingSlip } from "@/lib/providers/printful"
@@ -88,6 +87,11 @@ export async function submitFulfillment(
     const resolvedItems = await Promise.all(
       order.items.map(async (item) => {
         const internalId = item.product.printfulVariantId
+        // getCatalogItem は is_enabled で絞らない（catalog-db.ts:31-38）。
+        // ここではそれが正しい。商品が有効だった時点で成立した注文は、その後
+        // カタログで無効化されても発送されなければならない。公開ページと決済は
+        // 絞る側に揃えてあるが、ここを「揃える」と支払い済みの注文が発送不能に
+        // なる。後から統一したくなる箇所である（設計 §7.6）。
         const catalogItem = await getCatalogItem(internalId)
         if (!catalogItem) {
           throw new Error(`No catalog entry for variant: ${internalId}`)
@@ -95,7 +99,7 @@ export async function submitFulfillment(
         const variantId = await getPrintfulVariantId(
           catalogItem.printfulProductId,
           item.size,
-          item.color ?? PRINTFUL_DEFAULT_COLOR
+          item.color
         )
         return {
           printfulItem: {
@@ -132,7 +136,7 @@ export async function submitFulfillment(
     const printfulOrder = await submitPrintfulOrder(
       orderId,
       {
-        name: order.buyerName ?? "Customer",
+        name: order.buyerName?.trim() || "Customer",
         address1: shipping.line1,
         address2: shipping.line2,
         city: shipping.city,
@@ -151,7 +155,7 @@ export async function submitFulfillment(
     if (order.buyerEmail) {
       await sendOrderConfirmationEmail(order.buyerEmail, {
         orderId,
-        buyerName: order.buyerName ?? "Customer",
+        buyerName: order.buyerName?.trim() || "Customer",
         campaignTitle: order.campaign.title,
         orgName: order.campaign.org.name,
         items: order.items.map((i, idx) => ({

@@ -9,6 +9,8 @@ import { isSellingOpen } from "@/lib/campaign-lifecycle"
 import { db } from "@/lib/db/client"
 import { organizations } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
+import { getCatalogItemsByIds } from "@/lib/catalog-db"
+import { isSellablePair, colorsFor } from "@/lib/cart-options"
 
 type CheckoutBody = {
   campaignId: string
@@ -72,6 +74,17 @@ export async function POST(request: NextRequest) {
 
   // Validate cart items against campaign products
   const productMap = new Map(campaign.products.map((p) => [p.id, p]))
+
+  // 買い手のブラウザは size も color も quantity も自由に送れる。
+  //
+  // 通すと Stripe の決済は成功し、決済後に webhook から呼ばれる
+  // submitFulfillment の中で getPrintfulVariantId（printful.ts:86-88 の完全一致）が
+  // :90 で throw する。買い手は課金され、注文ページには 🎉 が出て、確認メールは
+  // 送信処理が throw より後ろにあるため一通も届かない（設計 §0）。
+  const catalogById = await getCatalogItemsByIds([
+    ...new Set(campaign.products.map((p) => p.printfulVariantId)),
+  ])
+
   for (const item of items) {
     const product = productMap.get(item.campaignProductId)
     if (!product) {
@@ -80,8 +93,38 @@ export async function POST(request: NextRequest) {
     if (item.unitPriceCents !== product.retailPrice) {
       return NextResponse.json({ error: "Price mismatch — please refresh the page" }, { status: 400 })
     }
-    if (item.quantity < 1 || item.quantity > 10) {
-      return NextResponse.json({ error: "Quantity must be between 1 and 10" }, { status: 400 })
+    // 比較だけでは NaN も 1.5 も "abc" も通る。通ると totalCents が NaN になり、
+    // 逆ざやガードも注文上限も同じく比較なので素通りし、createPendingOrder が
+    // order_items を確定させてから Stripe が 500 を返す。残った1行がその団体を
+    // savePricingStep から永久に締め出す（設計 §7.5 / §8.6）。
+    if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 10) {
+      return NextResponse.json({ error: "Quantity must be a whole number between 1 and 10" }, { status: 400 })
+    }
+
+    const catalogItem = catalogById.get(product.printfulVariantId)
+
+    // ① Printful がそれを作れるか。行が無い / is_enabled=false / sizes が空 /
+    //    対が不成立 / 色やサイズが空文字 — すべてここで断る。
+    if (!isSellablePair(catalogItem, item.size, item.color)) {
+      return NextResponse.json(
+        {
+          error: `"${item.size}" / "${item.color ?? ""}" is not available for ` +
+            `${catalogItem?.name ?? product.printfulVariantId} — please refresh the page and choose again`,
+        },
+        { status: 400 }
+      )
+    }
+
+    // ② その団体がそれを売ると言ったか。①はカタログしか見ないので、
+    //    黒しか売らない団体の Red を止めるのはここだけである。落とすと
+    //    故障モード (B) が検証器を通り抜けて再現する（設計 §7.5 手順4）。
+    //    追加のクエリは不要 — productMap（:74）が availableColors を持っている。
+    const offered = colorsFor(catalogItem, JSON.parse(product.availableColors) as string[])
+    if (!offered.includes(item.color)) {
+      return NextResponse.json(
+        { error: `"${item.color}" is not offered for this item — please refresh the page and choose again` },
+        { status: 400 }
+      )
     }
   }
 
