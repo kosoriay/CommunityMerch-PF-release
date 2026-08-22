@@ -28,6 +28,12 @@ export async function GET(req: Request): Promise<NextResponse> {
   let skipped = 0
   const details: string[] = []
 
+  // defaultMockupVariantId はここで現役である。モックアップ生成での使用は
+  // 2026-08-19 に色別解決へ置き換えたが（mockup-generator.ts）、この cron は
+  // 原価取得の基準 variant としてこの列を使い続けている。**列を削除しては
+  // ならない。** 消すと直下の `if (!row.defaultMockupVariantId)` が全件で真になり、
+  // 17商品すべてが skipped として静かに素通りする。Printful の値上げに追随
+  // できなくなるが、cron は成功を返し続ける（設計 §8.3）。
   for (const row of rows) {
     if (!row.defaultMockupVariantId) {
       skipped++

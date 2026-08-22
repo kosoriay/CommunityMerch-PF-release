@@ -56,6 +56,8 @@ async function seed() {
         catalogImageUrl: variant.catalogImageUrl,
         podCostCents: variant.podCostCents,
         availableColors: JSON.stringify(variant.availableColors),
+        sizes: JSON.stringify(variant.sizes),
+        unavailablePairs: JSON.stringify(variant.unavailablePairs),
         displayOrder: index,
         isEnabled: true,
         defaultMockupVariantId: MOCKUP_VARIANT_IDS[id] ?? null,
@@ -73,6 +75,12 @@ async function seed() {
           // catalog-prices cron owns prices after the initial insert — a
           // redeploy must not revert synced prices to these static values.
           availableColors: JSON.stringify(variant.availableColors),
+          // sizes / unavailablePairs は set にも入れる。17行は常に既存なので
+          // conflict 側しか走らず、values にだけ書くと永久に '[]' のままになる。
+          // podCostCents を set から外してあるのとは事情が逆である——原価は
+          // 週次 cron が所有するが、サイズは静的ファイルが所有する（設計 §10.2）。
+          sizes: JSON.stringify(variant.sizes),
+          unavailablePairs: JSON.stringify(variant.unavailablePairs),
           displayOrder: index,
           defaultMockupVariantId: MOCKUP_VARIANT_IDS[id] ?? null,
           updatedAt: now,
@@ -83,6 +91,20 @@ async function seed() {
   }
 
   console.log(`\nSeeded ${entries.length} catalog items into printful_catalog.`)
+
+  // sizes が空の商品は売れない（設計 §7.6）ので、素通りさせると「何も買えない
+  // ストアフロント」が本番に出る。db:init は vercel.json:2 の buildCommand の
+  // 一部なので、非0で終わればデプロイが落ち旧コードが配信され続ける（設計 §10.3）。
+  const check = await client.execute("SELECT id, sizes FROM printful_catalog ORDER BY display_order")
+  const empty = check.rows.filter((r) => !r.sizes || r.sizes === "[]")
+  if (empty.length > 0) {
+    console.error(`\nFAILED: ${empty.length} catalog rows have empty sizes and cannot be sold:`)
+    for (const row of empty) console.error(`  - ${row.id}`)
+    await client.close()
+    process.exit(1)
+  }
+  console.log(`Verified ${check.rows.length} rows have non-empty sizes.`)
+
   await client.close()
 }
 

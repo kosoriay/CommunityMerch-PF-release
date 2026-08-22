@@ -49,9 +49,10 @@ export function selectOrphanKeys(args: {
 /**
  * いま参照されている R2 キーの集合。
  *
- * `designs.mockupUrl` と `campaignProducts.mockupUrl` は Printful のファイルを
- * 指すので入れない。`r2KeyFromUrl` が null を返すため入れても無害だが、読んだ人が
- * 「モックアップも R2 にある」と誤解する。
+ * `designs.mockupUrl`、`campaignProducts.mockupUrl`、`campaignProducts.mockupUrls`
+ * はいずれも Printful のファイルを指すので入れない。`r2KeyFromUrl` が null を
+ * 返すため入れても無害だが、読んだ人が「モックアップも R2 にある」と誤解する。
+ * 規約 4.6 によりモックアップの IP は Printful に帰属し、R2 へは落とさない。
  *
  * `platformConfig.logoUrl` は現状 `/api/upload` を通らないが、R2 の URL を入れる
  * ことはできるので防御的に含める。

@@ -57,7 +57,14 @@ export async function POST(request: NextRequest) {
         stripePaymentIntentId: session.payment_intent as string,
         stripeCheckoutSessionId: session.id,
         buyerEmail: session.customer_details?.email ?? "",
-        buyerName: session.customer_details?.name ?? "",
+        // Stripe は氏名を返さないことがある。?? は "" を素通しするので、
+        // ここで空白だけの値も含めて潰す。下流（fulfillment.ts:134）は
+        // これを Printful の recipient.name にそのまま渡す。
+        //
+        // 潰す先は null であって "Customer" ではない。列は nullable で、
+        // 表示側はすでに全箇所が null を扱える。ここで名前を捏造すると
+        // 管理画面がそれを買い手の氏名として表示する（orders.ts:76 参照）。
+        buyerName: session.customer_details?.name?.trim() || null,
         shippingAddressJson: shippingAddress ? JSON.stringify(shippingAddress) : "",
       })
 

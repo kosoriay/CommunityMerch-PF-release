@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth"
 import { requireOrgAccess } from "@/lib/middleware/require-org-access"
 import { getCampaign } from "@/lib/campaigns"
 import { getCatalog } from "@/lib/catalog-db"
+import { defaultColorFor } from "@/lib/cart-options"
 import { PricingForm } from "./_form"
 import { savePricingAction } from "./_actions"
 
@@ -30,13 +31,18 @@ export default async function PricingPage({ params }: Props) {
   const initialPrices = Object.fromEntries(
     campaign.products.map((p) => [p.printfulVariantId, p.retailPrice])
   )
+  // "White" は7商品で誤りになる（設計 §3.2）。カタログ行が引けない場合は
+  // `[]`（`["White"]` を捏造しない）。
+  const catalogById = new Map(catalog.map((c) => [c.id, c]))
   const initialColors = Object.fromEntries(
     campaign.products.map((p) => {
+      const fallback = defaultColorFor(catalogById.get(p.printfulVariantId))
+      const fallbackColors = fallback ? [fallback] : []
       try {
-        const parsed = JSON.parse(p.availableColors ?? '["White"]') as unknown
-        return [p.printfulVariantId, Array.isArray(parsed) ? (parsed as string[]) : ["White"]]
+        const parsed = JSON.parse(p.availableColors) as unknown
+        return [p.printfulVariantId, Array.isArray(parsed) ? (parsed as string[]) : fallbackColors]
       } catch {
-        return [p.printfulVariantId, ["White"]]
+        return [p.printfulVariantId, fallbackColors]
       }
     })
   )

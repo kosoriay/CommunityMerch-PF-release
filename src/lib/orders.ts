@@ -7,7 +7,14 @@ export type CartItem = {
   size: string
   quantity: number
   unitPriceCents: number
-  color?: string
+  /**
+   * 必須。`/api/checkout` が検証済みの値だけがここへ来る。
+   *
+   * 以前は optional で `?? "White"` が既定を書いていた。その既定は17商品中
+   * 7商品で誤りであり、うち2商品では Printful に variant が無く決済成功後の
+   * 発注が throw していた（設計 §3.2）。**省略を許すと検証を素通りできる。**
+   */
+  color: string
 }
 
 export async function createPendingOrder(
@@ -36,7 +43,7 @@ export async function createPendingOrder(
         orderId: id,
         campaignProductId: item.campaignProductId,
         size: item.size,
-        color: item.color ?? "White",
+        color: item.color,
         quantity: item.quantity,
         unitPrice: item.unitPriceCents,
       })
@@ -66,7 +73,17 @@ export async function markOrderPaid(
     stripePaymentIntentId: string
     stripeCheckoutSessionId: string
     buyerEmail: string
-    buyerName: string
+    /**
+     * Stripe は氏名を返さないことがある。列は nullable（`schema.ts:190`）で、
+     * 読み手はすべて null を扱える（`admin/orders/page.tsx:81` の `?? "—"`、
+     * `orgs-orders.ts:11` の `string | null`、`order-pii.ts:119` は実際に
+     * null を書く）。この引数だけが `string` で、スキーマと食い違っていた。
+     *
+     * **名前が無いことを "Customer" で埋めないこと。** 埋めると管理画面は
+     * それを買い手の氏名として表示し、`admin.ts:96` の氏名検索が名無しの
+     * 注文を全件拾う。表示の既定値は表示側が決める。
+     */
+    buyerName: string | null
     shippingAddressJson: string
   }
 ): Promise<void> {

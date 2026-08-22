@@ -4,6 +4,7 @@ import { useActionState } from "react"
 import { Button, buttonVariants } from "@/components/ui/button"
 import Link from "next/link"
 import { ProductSelector, type ProductSelection } from "@/components/campaign/product-selector"
+import { defaultColorFor } from "@/lib/cart-options"
 import type { CatalogItem } from "@/lib/catalog-db"
 
 type ActionState = { error?: string } | undefined
@@ -35,13 +36,20 @@ export function PricingForm({
 }: Props) {
   const [state, formAction, pending] = useActionState(action, undefined)
 
+  // "White" は7商品で誤りになる（設計 §3.2）。カタログ行が引けない場合は
+  // `[]`（`["White"]` を捏造しない）。
+  function fallbackColorsFor(variantId: string): string[] {
+    const color = defaultColorFor(catalog.find((c) => c.id === variantId))
+    return color ? [color] : []
+  }
+
   const initial: Partial<ProductSelection> = {
     selectedIds: initialSelectedIds,
     retailPrices: Object.fromEntries(
       Object.entries(initialPrices).map(([k, v]) => [k, (v / 100).toFixed(2)])
     ),
     selectedColors: Object.fromEntries(
-      initialSelectedIds.map((id) => [id, initialColors?.[id] ?? ["White"]])
+      initialSelectedIds.map((id) => [id, initialColors?.[id] ?? fallbackColorsFor(id)])
     ),
     goalDollars: initialGoal ? String(initialGoal / 100) : "",
     deadline: initialDeadline ? initialDeadline.toISOString().split("T")[0] : "",

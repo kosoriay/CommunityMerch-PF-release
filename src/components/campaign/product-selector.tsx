@@ -11,6 +11,7 @@ import {
   type PresetPackId,
 } from "@/lib/printful-catalog"
 import { formatCents } from "@/lib/format"
+import { colorsFor, defaultColorFor } from "@/lib/cart-options"
 import type { CatalogItem } from "@/lib/catalog-utils"
 
 export type ProductSelection = {
@@ -38,10 +39,16 @@ export function ProductSelector({ catalog, initial, onSelectionChange }: Props) 
     onSelectionChange?.({ selectedIds, retailPrices, selectedColors, goalDollars, deadline })
   }, [selectedIds, retailPrices, selectedColors, goalDollars, deadline, onSelectionChange])
 
+  // "White" は7商品で誤りになる（設計 §3.2）。商品ごとの既定色を引く。
+  function initialColorsFor(variantId: string): string[] {
+    const color = defaultColorFor(catalog.find((c) => c.id === variantId))
+    return color ? [color] : []
+  }
+
   function selectPack(packId: PresetPackId) {
     const newIds = PRESET_PACKS[packId].variantIds
     setSelectedIds([...newIds])
-    setSelectedColors(Object.fromEntries(newIds.map((id) => [id, ["White"]])))
+    setSelectedColors(Object.fromEntries(newIds.map((id) => [id, initialColorsFor(id)])))
   }
 
   function toggleVariant(variantId: string) {
@@ -51,14 +58,14 @@ export function ProductSelector({ catalog, initial, onSelectionChange }: Props) 
         return prev.filter((id) => id !== variantId)
       }
       if (prev.length >= 5) return prev
-      setSelectedColors((c) => ({ ...c, [variantId]: ["White"] }))
+      setSelectedColors((c) => ({ ...c, [variantId]: initialColorsFor(variantId) }))
       return [...prev, variantId]
     })
   }
 
   function toggleColor(variantId: string, colorName: string) {
     setSelectedColors((prev) => {
-      const current = prev[variantId] ?? ["White"]
+      const current = prev[variantId] ?? initialColorsFor(variantId)
       const next = current.includes(colorName)
         ? current.filter((c) => c !== colorName)
         : [...current, colorName]
@@ -110,6 +117,7 @@ export function ProductSelector({ catalog, initial, onSelectionChange }: Props) 
             const margin = isSelected && retailCents > 0
               ? calculateMargin(retailCents, item.podCostCents)
               : null
+            const sellableColors = colorsFor(item, selectedColors[item.id] ?? initialColorsFor(item.id))
 
             return (
               <div key={item.id} className={`p-4 ${isSelected ? "bg-blue-50" : ""}`}>
@@ -187,7 +195,7 @@ export function ProductSelector({ catalog, initial, onSelectionChange }: Props) 
                           <p className="text-xs text-muted-foreground mb-1.5">Available colors:</p>
                           <div className="flex flex-wrap gap-x-3 gap-y-2">
                             {item.availableColors.map((color) => {
-                              const isColorSelected = (selectedColors[item.id] ?? ["White"]).includes(color.name)
+                              const isColorSelected = (selectedColors[item.id] ?? initialColorsFor(item.id)).includes(color.name)
                               return (
                                 <label
                                   key={color.name}
@@ -213,6 +221,12 @@ export function ProductSelector({ catalog, initial, onSelectionChange }: Props) 
                               )
                             })}
                           </div>
+                          {sellableColors.length === 0 && (
+                            <p className="text-xs text-red-600">
+                              None of the colours saved for this product can be printed any more. Choose at least
+                              one colour, or remove the product — it cannot be bought until you do.
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}

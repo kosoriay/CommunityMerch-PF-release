@@ -76,7 +76,9 @@ export async function getPrintfulVariantPriceCents(
 export async function getPrintfulVariantId(
   printfulProductId: number,
   size: string,
-  color = "White"
+  // 既定引数を置かない。"White" を暗黙の既定にすると bc-3413-triblend と
+  // econscious-ec8000-tote では確実に throw する（設計 §3.2 (A)）。
+  color: string
 ): Promise<number> {
   const res = await fetch(`${BASE_URL}/products/${printfulProductId}`, {
     headers: { Authorization: AUTH },
@@ -90,6 +92,43 @@ export async function getPrintfulVariantId(
     throw new Error(`No Printful variant found: productId=${printfulProductId} size=${size} color=${color}`)
   }
   return variant.id
+}
+
+/**
+ * 色名 → variant ID の対応。ネットワークに触らないので単体で試験できる。
+ *
+ * 見つからない色は**黙って落とす**。団体が選んだ色名が Printful 側と一致
+ * しないことはあり、そこで例外にすると他の色のモックアップも保存されない。
+ * 落ちた色はカタログ写真にフォールバックする（設計 §8.2）。
+ */
+export function selectVariantIdsForColors(
+  variants: { id: number; size: string; color: string }[],
+  colors: string[],
+  size: string
+): Map<string, number> {
+  const byColor = new Map<string, number>()
+  for (const color of colors) {
+    const variant = variants.find((v) => v.size === size && v.color === color)
+    if (variant) byColor.set(color, variant.id)
+  }
+  return byColor
+}
+
+/**
+ * 商品1件につき `GET /products/{id}` を1回だけ引く。
+ *
+ * **これは新しい API 呼び出しである。** 現行の mockup-generator は variant ID を
+ * DB（defaultMockupVariantId）から取るため Printful を1回も引いていない。
+ * 商品あたり1回増える。据え置きなのは create-task の回数だけ（設計 §8.2）。
+ */
+export async function getPrintfulVariantIdsByColor(
+  printfulProductId: number, colors: string[], size: string
+): Promise<Map<string, number>> {
+  if (colors.length === 0) return new Map()
+  const res = await fetch(`${BASE_URL}/products/${printfulProductId}`, { headers: { Authorization: AUTH } })
+  if (!res.ok) throw new Error(`Printful product lookup failed: ${res.status}`)
+  const data = await res.json() as { result: { variants: PrintfulVariantResult[] } }
+  return selectVariantIdsForColors(data.result.variants, colors, size)
 }
 
 // Submit a fulfillment order to Printful.

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ProductSelector, type ProductSelection } from "@/components/campaign/product-selector"
 import { savePreviewDraft } from "@/lib/preview-draft"
+import { defaultColorFor } from "@/lib/cart-options"
 import type { CatalogItem } from "@/lib/catalog-db"
 
 export function PreviewBuilder({ catalog }: { catalog: CatalogItem[] }) {
@@ -25,6 +26,13 @@ export function PreviewBuilder({ catalog }: { catalog: CatalogItem[] }) {
     selectionRef.current = s
   }, [])
 
+  // "White" は7商品で誤りになる（設計 §3.2）。カタログ行が引けない場合は
+  // `[]`（`["White"]` を捏造しない）。
+  function fallbackColorsFor(variantId: string): string[] {
+    const color = defaultColorFor(catalog.find((c) => c.id === variantId))
+    return color ? [color] : []
+  }
+
   function handleSave() {
     setError(null)
     const trimmed = name.trim()
@@ -37,7 +45,7 @@ export function PreviewBuilder({ catalog }: { catalog: CatalogItem[] }) {
       products: sel.selectedIds.map((id) => ({
         variantId: id,
         retailDollars: sel.retailPrices[id] ?? "28.00",
-        colors: sel.selectedColors[id] ?? ["White"],
+        colors: sel.selectedColors[id] ?? fallbackColorsFor(id),
       })),
       goalDollars: sel.goalDollars,
       deadline: sel.deadline,

@@ -150,12 +150,29 @@ export default async function PublicCampaignPage({ params }: Props) {
               printfulVariantId: p.printfulVariantId,
               retailPrice: p.retailPrice,
               mockupUrl: p.mockupUrl ?? null,
-              availableColors: (() => {
+              mockupUrls: (() => {
+                if (!p.mockupUrls) return null
                 try {
-                  const parsed = JSON.parse(p.availableColors ?? '["White"]') as unknown
-                  return Array.isArray(parsed) ? (parsed as string[]) : ["White"]
+                  const parsed: unknown = JSON.parse(p.mockupUrls)
+                  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null
+                  // 壊れた1行で公開ページを 500 にしない。
+                  return Object.fromEntries(
+                    Object.entries(parsed).filter(([, v]) => typeof v === "string")
+                  ) as Record<string, string>
                 } catch {
-                  return ["White"]
+                  return null
+                }
+              })(),
+              availableColors: (() => {
+                // ここで既定色を捏造しない。かつての既定は17商品中7商品で誤りであり、
+                // うち2つは Printful にその色の variant が存在しなかった（設計 §3.2）。
+                // 空にしておけば colorsFor が空を返し、カートはその商品カードだけを
+                // 購入不可として描画する（設計 §7.6）。キャンペーンは止まらない。
+                try {
+                  const parsed: unknown = JSON.parse(p.availableColors ?? "[]")
+                  return Array.isArray(parsed) ? (parsed as string[]) : []
+                } catch {
+                  return []
                 }
               })(),
             }))}

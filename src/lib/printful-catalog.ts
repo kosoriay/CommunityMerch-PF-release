@@ -25,13 +25,40 @@ export type PrintfulColor = {
   imageUrl?: string
 }
 
+/**
+ * 両方とも単体では存在するのに、対としては存在しない組合せ。
+ *
+ * **連結文字列にしない。** 色名に `/` を含む商品が実在する（`:227` の
+ * `"Black/ White"`、`:229` の `"Navy/ White"`）。`"One size/Black/ White"` は
+ * 区切りが一意に読めない。今日は欠落対が1件しかないが、トラッカーハットは
+ * 本変更が初めて売れるようにする商品である（設計 §7.2）。
+ */
+export type UnavailablePair = { size: string; color: string }
+
 export type PrintfulVariant = {
   id: PrintfulVariantId
   name: string
   podCostCents: number
   description: string
   catalogImageUrl: string
+  /**
+   * 販売する色。**Printful に実在する色だけを並べること。**
+   * 先頭が既定色になる（cart-options.ts の defaultColorFor）。
+   * 実測: docs/3-development/specs/2026-08-19-printful-measurements.md（2026-08-19）
+   */
   availableColors: PrintfulColor[]
+  /**
+   * 販売するサイズ。Printful に実在する値と完全一致していること。
+   *
+   * `providers/printful.ts:86-88` は完全一致で引き、無ければ `:90` で throw する。
+   * `submitFulfillment` は Stripe webhook から**決済成功後に**呼ばれるので、
+   * ここに実在しない値を書くと買い手は課金され商品は永久に届かない（設計 §0）。
+   *
+   * 上限は 2XL。3XL 以上は pod_cost_cents（schema.ts:305）が商品あたり1つしか
+   * 無いため逆ざやになる（設計 §2.3）。実測: 2026-08-19
+   */
+  sizes: string[]
+  unavailablePairs: UnavailablePair[]
 }
 
 export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
@@ -51,6 +78,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Dark Grey", hex: "#2A2929", imageUrl: "https://files.cdn.printful.com/products/71/21577_1752236279.jpg" },
       { name: "Light Blue", hex: "#cfd5e1", imageUrl: "https://files.cdn.printful.com/products/71/4096_1752236281.jpg" },
     ],
+    sizes: ["XS", "S", "M", "L", "XL", "2XL"],          // 実測 2026-08-19: XS〜5XL。3XL 以上は原価未対応
+    unavailablePairs: [{ size: "XS", color: "Forest" }], // 実測 2026-08-19: XS も Forest もあるが対は無い
   },
   "bc-3001y-tee": {
     id: "bc-3001y-tee",
@@ -64,6 +93,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Navy", hex: "#0d1529", imageUrl: "https://files.cdn.printful.com/products/307/9602_1581518073.jpg" },
       { name: "Red", hex: "#d0071e", imageUrl: "https://files.cdn.printful.com/products/307/10634_1581518147.jpg" },
     ],
+    sizes: ["S", "M", "L", "XL"],  // 実測 2026-08-19: これで全部。XS も 2XL も存在しない
+    unavailablePairs: [],
   },
   "bc-3501-ls": {
     id: "bc-3501-ls",
@@ -75,8 +106,9 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "White", hex: "#ffffff", imageUrl: "https://files.cdn.printful.com/products/356/10141_1556619718.jpg" },
       { name: "Black", hex: "#131313", imageUrl: "https://files.cdn.printful.com/products/356/10098_1732542285.jpg" },
       { name: "Navy", hex: "#161324", imageUrl: "https://files.cdn.printful.com/products/356/10123_1556619717.jpg" },
-      { name: "Dark Grey", hex: "#3e3c3d", imageUrl: "https://files.cdn.printful.com/products/356/11202_1603780158.jpg" },
     ],
+    sizes: ["XS", "S", "M", "L", "XL", "2XL"],  // 実測 2026-08-19: XS〜2XL
+    unavailablePairs: [],
   },
   "gildan-18500-hoodie": {
     id: "gildan-18500-hoodie",
@@ -91,6 +123,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Sport Grey", hex: "#9b969c", imageUrl: "https://files.cdn.printful.com/products/146/5610_1750160841.jpg" },
       { name: "Dark Heather", hex: "#47484d", imageUrl: "https://files.cdn.printful.com/products/146/10806_1750160842.jpg" },
     ],
+    sizes: ["S", "M", "L", "XL", "2XL"],  // 実測 2026-08-19: S〜5XL。XS は存在しない
+    unavailablePairs: [],
   },
   "atc-bg150-tote": {
     id: "atc-bg150-tote",
@@ -99,10 +133,10 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
     description: "ATC BG150",
     catalogImageUrl: "https://files.cdn.printful.com/o/upload/product-catalog-img/fa/fa37e474f7c3d027440f63ab51ad7692_l",
     availableColors: [
-      { name: "Natural", hex: "#fef3c7", imageUrl: "https://files.cdn.printful.com/products/641/16289_1666349190.jpg" },
       { name: "Black", hex: "#0a0a0a", imageUrl: "https://files.cdn.printful.com/products/641/16287_1666349183.jpg" },
-      { name: "Navy", hex: "#1e3a5f", imageUrl: "https://files.cdn.printful.com/o/upload/product-catalog-img/fa/fa37e474f7c3d027440f63ab51ad7692_l" },
     ],
+    sizes: ["One size"],  // 実測 2026-08-19: One size のみ
+    unavailablePairs: [],
   },
   "bc-3413-triblend": {
     id: "bc-3413-triblend",
@@ -118,6 +152,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Blue Triblend", hex: "#62749b", imageUrl: "https://files.cdn.printful.com/products/162/6493_1719905103.jpg" },
       { name: "Red Triblend", hex: "#da5154", imageUrl: "https://files.cdn.printful.com/products/162/6581_1719905649.jpg" },
     ],
+    sizes: ["XS", "S", "M", "L", "XL", "2XL"],  // 実測 2026-08-19: XS〜4XL。3XL 以上は原価未対応
+    unavailablePairs: [],
   },
   "gildan-5000-classic": {
     id: "gildan-5000-classic",
@@ -135,6 +171,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Dark Heather", hex: "#595959", imageUrl: "https://files.cdn.printful.com/products/438/15847_1661693946.jpg" },
       { name: "Gold", hex: "#ffb22d", imageUrl: "https://files.cdn.printful.com/products/438/15853_1664354988.jpg" },
     ],
+    sizes: ["S", "M", "L", "XL", "2XL"],  // 実測 2026-08-19: S〜5XL。XS は存在しない
+    unavailablePairs: [],
   },
   "gildan-64000-softstyle": {
     id: "gildan-64000-softstyle",
@@ -151,6 +189,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Sport Grey", hex: "#d1d2d6", imageUrl: "https://files.cdn.printful.com/products/12/627_1653477316.jpg" },
       { name: "Dark Heather", hex: "#424848", imageUrl: "https://files.cdn.printful.com/products/12/607_1653477262.jpg" },
     ],
+    sizes: ["S", "M", "L", "XL", "2XL"],  // 実測 2026-08-19: S〜3XL。XS は存在しない
+    unavailablePairs: [],
   },
   "gildan-18000-crewneck": {
     id: "gildan-18000-crewneck",
@@ -166,6 +206,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Dark Heather", hex: "#46484d", imageUrl: "https://files.cdn.printful.com/products/145/10833_1753765555.jpg" },
       { name: "Forest Green", hex: "#1A3626", imageUrl: "https://files.cdn.printful.com/products/145/18763_1753765555.jpg" },
     ],
+    sizes: ["S", "M", "L", "XL", "2XL"],  // 実測 2026-08-19: S〜5XL。XS は存在しない
+    unavailablePairs: [],
   },
   "ch-m2580-hoodie": {
     id: "ch-m2580-hoodie",
@@ -183,6 +225,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Team Royal", hex: "#1b43ae", imageUrl: "https://files.cdn.printful.com/products/380/13905_1759916354.jpg" },
       { name: "Team Red", hex: "#FF2D41", imageUrl: "https://files.cdn.printful.com/products/380/20278_1759916354.jpg" },
     ],
+    sizes: ["S", "M", "L", "XL", "2XL"],  // 実測 2026-08-19: S〜3XL。XS は存在しない
+    unavailablePairs: [],
   },
   "cc-1717-garment-dyed": {
     id: "cc-1717-garment-dyed",
@@ -200,6 +244,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Brick", hex: "#8d4b54", imageUrl: "https://files.cdn.printful.com/products/586/15161_1759238040.jpg" },
       { name: "Chalky Mint", hex: "#a1f2dc", imageUrl: "https://files.cdn.printful.com/products/586/21513_1759238040.jpg" },
     ],
+    sizes: ["S", "M", "L", "XL", "2XL"],  // 実測 2026-08-19: S〜4XL。XS は存在しない
+    unavailablePairs: [],
   },
   "yupoong-6245cm-dad-hat": {
     id: "yupoong-6245cm-dad-hat",
@@ -215,6 +261,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Stone", hex: "#d6bdad", imageUrl: "https://files.cdn.printful.com/products/206/7859_1584455468.jpg" },
       { name: "Pink", hex: "#fab2ba", imageUrl: "https://files.cdn.printful.com/products/206/7858_1584455412.jpg" },
     ],
+    sizes: ["One size"],  // 実測 2026-08-19: One size のみ
+    unavailablePairs: [],
   },
   "yupoong-6606-trucker": {
     id: "yupoong-6606-trucker",
@@ -230,6 +278,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Red", hex: "#c6172f", imageUrl: "https://files.cdn.printful.com/products/252/8754_1585041816.jpg" },
       { name: "Dark Heather Gray", hex: "#434344", imageUrl: "https://files.cdn.printful.com/products/252/20391_1725007490.jpg" },
     ],
+    sizes: ["One size"],  // 実測 2026-08-19: One size のみ
+    unavailablePairs: [],
   },
   "yupoong-6089m-snapback": {
     id: "yupoong-6089m-snapback",
@@ -243,6 +293,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Dark Grey", hex: "#666061", imageUrl: "https://files.cdn.printful.com/products/99/4797_1586154846.jpg" },
       { name: "Royal Blue", hex: "#10337a", imageUrl: "https://files.cdn.printful.com/products/99/4807_1586155230.jpg" },
     ],
+    sizes: ["One size"],  // 実測 2026-08-19: One size のみ
+    unavailablePairs: [],
   },
   "yupoong-1501kc-beanie": {
     id: "yupoong-1501kc-beanie",
@@ -258,6 +310,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Gold", hex: "#ffa913", imageUrl: "https://files.cdn.printful.com/products/266/12882_1627881265.jpg" },
       { name: "Red", hex: "#b91616", imageUrl: "https://files.cdn.printful.com/products/266/8939_1584956866.jpg" },
     ],
+    sizes: ["One size"],  // 実測 2026-08-19: One size のみ
+    unavailablePairs: [],
   },
   "white-glossy-mug": {
     id: "white-glossy-mug",
@@ -268,6 +322,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
     availableColors: [
       { name: "White", hex: "#ffffff", imageUrl: "https://files.cdn.printful.com/products/19/1320_1663762583.jpg" },
     ],
+    sizes: ["11 oz"],  // 実測 2026-08-19: 11/15/20 oz。原価差のため 11 oz のみ（設計 §2.3）
+    unavailablePairs: [],
   },
   "econscious-ec8000-tote": {
     id: "econscious-ec8000-tote",
@@ -279,6 +335,8 @@ export const PRINTFUL_VARIANTS: Record<PrintfulVariantId, PrintfulVariant> = {
       { name: "Black", hex: "#101010", imageUrl: "https://files.cdn.printful.com/products/367/10457_1582200790.jpg" },
       { name: "Oyster", hex: "#edcea5", imageUrl: "https://files.cdn.printful.com/products/367/10458_1642499411.jpg" },
     ],
+    sizes: ["One size"],  // 実測 2026-08-19: One size のみ
+    unavailablePairs: [],
   },
 }
 
@@ -434,6 +492,18 @@ export const PRINTFUL_PRODUCT_IDS: Record<PrintfulVariantId, number> = {
   "econscious-ec8000-tote": 367,   // Eco Tote Bag | Econscious EC8000
 }
 
+/**
+ * @deprecated 新規の参照を増やさないこと。
+ *
+ * 「全商品が White を売れる」という前提で置かれたが、その前提は誤りである。
+ * 販売可能色に `"White"` を含まない商品が **7つ**あり、うち **2つ**
+ * （bc-3413-triblend / econscious-ec8000-tote）は Printful 側にも White が無く、
+ * この値で発注すると printful.ts:90 が throw する。残る5商品は発送されるが、
+ * 団体が一度も選んでいない白い商品が届く（設計 §3.2）。
+ *
+ * 既定色が要る場面では cart-options.ts の `defaultColorFor(catalogItem)` を使う。
+ * 唯一の参照だった fulfillment.ts:98 は Task 8 で削除する。
+ */
 export const PRINTFUL_DEFAULT_COLOR = "White"
 
 export function getColorImage(variantId: PrintfulVariantId, colorName: string): string {
