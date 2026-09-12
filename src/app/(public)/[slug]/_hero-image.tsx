@@ -12,8 +12,8 @@ import { imageFallback } from "@/lib/catalog-utils"
  * 判定は `imageFallback` に任せる。**2つ目の判定関数を書かないこと** — 書くと、
  * 片方だけ直した修正が起きる（レビュー I2）。
  *
- * デザインプレビュー列には夜間バッチの修復経路が無い（設計 §10）。腐ったプレビュー
- * を抱えた既存キャンペーンでも、ここでアップロード済みのデザイン画像へ落ちる。
+ * デザインプレビュー列は `saveDesignStep` のみが書き込む。夜間バッチが自前ストレージ外
+ * の値を NULL 化するため、このフォールバックは cron 前後の読み込み失敗をカバーする。
  */
 export function CampaignHeroImage({
   src,

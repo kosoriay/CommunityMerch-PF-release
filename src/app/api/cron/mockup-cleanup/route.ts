@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
 import { db } from "@/lib/db/client"
 import { campaigns, campaignProducts, designs } from "@/lib/db/schema"
-import { and, eq, lt, isNotNull, isNull, gt, or } from "drizzle-orm"
+import { and, eq, lt, isNotNull, isNull, gt, or, inArray } from "drizzle-orm"
 import { generateCampaignMockups } from "@/lib/mockup-generator"
 import { materializeExpiredCampaigns } from "@/lib/campaign-lifecycle"
 import { sweepOrphanedUploads } from "@/lib/orphaned-uploads"
 import { sweepExpiredOrderPII } from "@/lib/order-pii"
-import { needsRehost, referencedKeysFrom } from "@/lib/r2-keys"
+import { needsRehost, referencedKeysFrom, acceptableMockupUrl } from "@/lib/r2-keys"
 import { r2PublicUrlOrNull, deleteFromR2 } from "@/lib/providers/r2"
 
 export async function GET(req: Request): Promise<NextResponse> {
@@ -86,6 +86,42 @@ export async function GET(req: Request): Promise<NextResponse> {
       .update(campaignProducts)
       .set({ mockupUrl: null, mockupUrls: null, mockupGeneratedAt: null })
       .where(hasAnyMockup)
+  }
+
+  // 1.5. designs.mockup_url has no regeneration path anywhere in the codebase —
+  //      it is written only by saveDesignStep (src/lib/campaigns.ts:150,159).
+  //      A row saved before the R2 rehost (v1.21.0) is stuck holding a dead
+  //      Printful URL forever. The public hero image already falls back to the
+  //      uploaded design file on load error, so clearing the column here does
+  //      not regenerate anything — it just stops the guaranteed-failing
+  //      request and removes the dangling value as a trap for future code that
+  //      renders it without an onError handler.
+  //
+  //      Filter in JS, not SQL: a LIKE against the public URL would treat any
+  //      `_` it contains as a single-character wildcard, and a loosened match
+  //      would null out a value that IS already on our host — destroying a
+  //      good preview. Same reasoning as branch 2's rot check above.
+  //
+  //      acceptableMockupUrl(url, null) is true for every url, so with R2
+  //      unconfigured (publicUrlForCleanup is null) nothing here is ever
+  //      unacceptable and this step is a no-op. Rely on that instead of a
+  //      second guard.
+  const designsWithMockup = await db
+    .select({ id: designs.id, mockupUrl: designs.mockupUrl })
+    .from(designs)
+    .where(isNotNull(designs.mockupUrl))
+
+  const deadDesignMockupIds = designsWithMockup
+    .filter((row) => !acceptableMockupUrl(row.mockupUrl, publicUrlForCleanup))
+    .map((row) => row.id)
+
+  let designMockupUrlsCleared = 0
+  if (deadDesignMockupIds.length > 0) {
+    await db
+      .update(designs)
+      .set({ mockupUrl: null })
+      .where(inArray(designs.id, deadDesignMockupIds))
+    designMockupUrlsCleared = deadDesignMockupIds.length
   }
 
   // 2. Re-generate for active campaigns whose mockups are no good any more.
@@ -205,6 +241,7 @@ export async function GET(req: Request): Promise<NextResponse> {
     ok: true,
     closedByDeadline,
     mockupObjectsDeleted,
+    designMockupUrlsCleared,
     orphanedUploadsDeleted: orphanSweep.deleted,
     ordersAnonymized: piiSweep.anonymized,
   })
