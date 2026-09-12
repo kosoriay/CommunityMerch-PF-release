@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { generateMockup } from "@/lib/providers/printful-mockup"
+import { rehostMockup, designPreviewKeyBase, isR2Configured } from "@/lib/mockup-rehost"
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -30,7 +31,16 @@ export async function POST(request: NextRequest) {
 
   try {
     const mockupUrl = await generateMockup(designUrl, printfulProductId, variantId)
-    return NextResponse.json({ mockupUrl })
+
+    // Printful が返すのは一時置き場のURLで、実測10日以下で 403 になる。この列には
+    // 再生成経路が無いので（設計 §10）、ここで複製しないと永久に腐る。
+    if (!isR2Configured()) return NextResponse.json({ mockupUrl })
+
+    const durable = await rehostMockup(mockupUrl, designPreviewKeyBase())
+    if (!durable) {
+      return NextResponse.json({ error: "Mockup generation failed" }, { status: 502 })
+    }
+    return NextResponse.json({ mockupUrl: durable })
   } catch (err) {
     console.error("[printful-mockup] generation failed:", err)
     return NextResponse.json({ error: "Mockup generation failed" }, { status: 502 })

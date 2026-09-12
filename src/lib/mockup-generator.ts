@@ -4,6 +4,7 @@ import { campaignProducts, designs, printfulCatalog } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { generateMockups } from "@/lib/providers/printful-mockup"
 import { getPrintfulVariantIdsByColor } from "@/lib/providers/printful"
+import { rehostMockup, campaignMockupKeyBase, isR2Configured } from "@/lib/mockup-rehost"
 import { parseCatalogRow } from "@/lib/catalog-db"
 import { colorsFor, representativeSizeFor } from "@/lib/cart-options"
 
@@ -97,13 +98,30 @@ export async function generateCampaignMockups(
       )
 
       // 返却順は要求順と一致しない。variant ID で突き合わせる（設計 §5.3）。
+      //
+      // Printful が返すのは一時置き場のURLで、実測10日以下で 403 になる。そのまま
+      // 列へ入れず R2 へ複製して永続URLに差し替える（設計 2026-09-11 §5）。
+      // **色ごとに独立して失敗させる。** 1色の複製が失敗しても他の色は売れる。
       const urlByColor: Record<string, string> = {}
       for (const [color, variantId] of variantIdByColor) {
-        const url = urlByVariant.get(variantId)
-        if (url) urlByColor[color] = url
+        const sourceUrl = urlByVariant.get(variantId)
+        if (!sourceUrl) continue
+
+        if (!isR2Configured()) {
+          // 開発環境（設計 D7）。腐るURLだと分かっているが、何も出ないより良い
+          console.warn("[mockups] R2 is not configured; storing Printful's temporary url as-is")
+          urlByColor[color] = sourceUrl
+          continue
+        }
+
+        const durable = await rehostMockup(
+          sourceUrl,
+          campaignMockupKeyBase(campaignId, product.printfulVariantId, color)
+        )
+        if (durable) urlByColor[color] = durable
       }
       if (Object.keys(urlByColor).length === 0) {
-        console.warn(`[mockups] Printful returned no front mockups for ${product.printfulVariantId}`)
+        console.warn(`[mockups] no durable mockup could be stored for ${product.printfulVariantId}`)
         await stamp()
         continue
       }

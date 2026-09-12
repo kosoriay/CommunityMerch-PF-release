@@ -57,6 +57,7 @@ vi.mock("@/lib/providers/r2", () => ({
     return key.length > 0 ? key : null
   },
   deleteFromR2: async () => ({ deleted: 0, failed: 0 }),
+  r2PublicUrlOrNull: () => "https://cdn.example.com",
 }))
 
 import { generateCampaignSlug, supersededDesignKey, savePricingStep } from "./campaigns"

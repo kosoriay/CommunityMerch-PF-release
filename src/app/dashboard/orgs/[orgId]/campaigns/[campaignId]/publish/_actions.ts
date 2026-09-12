@@ -132,6 +132,11 @@ export async function reopenCampaignAction(
   const result = await reopenCampaign(campaignId, deadline)
   if (!result.ok) return { error: result.error }
 
+  // publish（:53）と対称にする。再オープン時点では mockupGeneratedAt が非NULLで
+  // 残っているので、force が無いと generateCampaignMockups 自身のガードに弾かれ、
+  // 腐った Printful の一時URLがそのまま残る（設計 2026-09-11 §7）。
+  after(() => generateCampaignMockups(campaignId, { force: true }))
+
   revalidatePath(`/dashboard/orgs/${orgId}/campaigns/${campaignId}/publish`)
   revalidatePath(`/${campaign.slug}`)
   return { success: "This campaign is open again." }

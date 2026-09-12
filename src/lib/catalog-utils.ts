@@ -26,3 +26,23 @@ export function getColorImageFromItem(item: CatalogItem, colorName: string): str
   const color = item.availableColors.find((c) => c.name === colorName)
   return color?.imageUrl ?? item.catalogImageUrl
 }
+
+/**
+ * 画像の読み込みが失敗したときに、次に何を出すか。
+ *
+ * **候補列（モックアップ → カタログ写真）は描画前に一度しか評価されない。**
+ * `??` が見るのは null/undefined だけで、URLが生きているかは見ない。だから死んだ
+ * モックアップURLが、生きているカタログ写真に勝つ。ここがその取り戻し口である
+ * （設計 2026-09-11 §9）。
+ *
+ * 差し替えは1回だけ。同じURLを入れ直すと `onError` が再入して無限ループになる。
+ */
+export function imageFallback(args: {
+  currentSrc: string
+  fallbackUrl: string
+  alreadyFellBack: boolean
+}): { src: string } | { hide: true } {
+  const { currentSrc, fallbackUrl, alreadyFellBack } = args
+  if (!fallbackUrl || alreadyFellBack || currentSrc === fallbackUrl) return { hide: true }
+  return { src: fallbackUrl }
+}

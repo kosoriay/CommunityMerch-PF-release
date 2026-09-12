@@ -2,7 +2,8 @@ import { db } from "@/lib/db/client"
 import { campaigns, campaignProducts, designs, organizations } from "@/lib/db/schema"
 import { and, count, desc, eq, inArray, ne } from "drizzle-orm"
 import { getActiveCodeForOrg, getPlatformFeeRate } from "@/lib/discount-codes"
-import { r2KeyFromUrl, deleteFromR2 } from "@/lib/providers/r2"
+import { r2KeyFromUrl, deleteFromR2, r2PublicUrlOrNull } from "@/lib/providers/r2"
+import { acceptableMockupUrl, resolveStoredMockupUrl } from "@/lib/r2-keys"
 
 const RESERVED_SLUGS = new Set(["dashboard", "sign-in", "invite", "api", "uploads"])
 
@@ -113,6 +114,16 @@ export async function saveDesignStep(
   designFileUrl: string | null,
   mockupUrl?: string | null
 ): Promise<void> {
+  // 境界で落とす。保存されたら描画される値なので、素通しにしない。
+  //
+  // **落とし方は「エラー」ではなく「null」。** フォームは既存の値を hidden で毎回
+  // 送り返すので、拒むと保存そのものが通らなくなる（レビュー C1）。利用者は何も
+  // 間違えていないし、直せるものも持っていない。
+  const publicUrl = r2PublicUrlOrNull()
+  if (mockupUrl && !acceptableMockupUrl(mockupUrl, publicUrl)) {
+    console.warn(`[design] dropping a mockupUrl that is not on our own host: ${mockupUrl}`)
+  }
+
   const now = new Date()
   // Captured before the write so the old file can be removed afterwards.
   // Replacing a design used to leave the previous upload in the bucket with
@@ -134,7 +145,9 @@ export async function saveDesignStep(
         .update(designs)
         .set({
           designFileUrl,
-          mockupUrl: mockupUrl ?? existing.mockupUrl,
+          // 残っている値も検査する。`?? existing.mockupUrl` は、このブランチ以前に
+          // 保存された Printful の一時URLを毎回書き戻していた（レビュー C1）。
+          mockupUrl: resolveStoredMockupUrl(mockupUrl, existing.mockupUrl, publicUrl),
           updatedAt: now,
         })
         .where(eq(designs.campaignId, campaignId))
@@ -143,7 +156,7 @@ export async function saveDesignStep(
         id: crypto.randomUUID(),
         campaignId,
         designFileUrl,
-        mockupUrl: mockupUrl ?? null,
+        mockupUrl: resolveStoredMockupUrl(mockupUrl, null, publicUrl),
         aiGenerated: false,
         createdAt: now,
         updatedAt: now,
@@ -153,7 +166,10 @@ export async function saveDesignStep(
 
   // After the commit, never inside it: a save that fails must not take the
   // file with it, and a storage failure must not fail a save that succeeded.
-  // `mockupUrl` is deliberately untouched — those are Printful's files.
+  //
+  // 差し替えられた古いプレビューはここでは消さない。**「Printful のファイルだから」
+  // ではない** — 2026-09-11 以降、この列は自前の R2 を指す。7日の猶予を置いて
+  // 孤児掃除が回収する（設計 §5.3・§8.2）。
   if (orphanedKey) await deleteFromR2([orphanedKey])
 }
 

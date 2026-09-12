@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { formatCents } from "@/lib/format"
-import { getColorImageFromItem, type CatalogItem } from "@/lib/catalog-utils"
+import { getColorImageFromItem, imageFallback, type CatalogItem } from "@/lib/catalog-utils"
 import {
   sizesFor, colorsFor, isSellablePair, initialSelectedSizes,
   cartItemCount, formatOrderHeading, addedToCartMessage, ADDED_FEEDBACK_MS,
@@ -154,7 +154,34 @@ export function CampaignCart({ campaignId, orgId, products, catalog }: Props) {
                   src={displayImageUrl}
                   alt={catalogItem?.name ?? product.printfulVariantId}
                   className="h-40 w-40 object-contain"
-                  onError={(e) => { e.currentTarget.style.display = "none" }}
+                  onError={(e) => {
+                    const img = e.currentTarget
+                    const next = imageFallback({
+                      currentSrc: img.src,
+                      fallbackUrl: catalogItem
+                        ? getColorImageFromItem(catalogItem, selectedColor)
+                        : "",
+                      alreadyFellBack: img.dataset.fellBack === "1",
+                    })
+                    if ("hide" in next) {
+                      img.style.display = "none"
+                      return
+                    }
+                    img.dataset.fellBack = "1"
+                    img.src = next.src
+                  }}
+                  onLoad={(e) => {
+                    // この `<img>` には key が無く、色を切り替えても**同じ DOM
+                    // ノード**が使い回される。React は命令的に書いた display と
+                    // dataset を戻さないので、落ちたフラグが次の色まで残り、2色目
+                    // 以降が灰色の空欄になっていた（レビュー I1）。
+                    //
+                    // 読み込めたときに自分で戻す。失敗した src で onLoad は発火
+                    // しないので、これが再入ループを開き直すことはない。
+                    const img = e.currentTarget
+                    img.style.display = ""
+                    delete img.dataset.fellBack
+                  }}
                 />
               </div>
 
