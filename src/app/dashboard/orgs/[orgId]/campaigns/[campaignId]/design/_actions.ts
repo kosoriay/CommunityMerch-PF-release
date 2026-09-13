@@ -27,6 +27,9 @@ export async function saveDesignAction(
   const designFileUrl = (formData.get("designFileUrl") as string | null) || null
   const mockupUrl = (formData.get("mockupUrl") as string | null) || null
 
+  // 保存できないプレビューURLは**落とす。拒まない。** フォームは既存の値を hidden
+  // で毎回送り返すので、拒むと「何も変えていない保存」まで失敗する（レビュー C1）。
+  // 安全性は変わらない — クライアント由来の他ホストURLは saveDesignStep が捨てる。
   await saveDesignStep(campaignId, designFileUrl, mockupUrl)
   redirect(`/dashboard/orgs/${orgId}/campaigns/${campaignId}/pricing`)
 }

@@ -5,6 +5,7 @@ import { formatDate, daysUntil } from "@/lib/format"
 import { getCatalog } from "@/lib/catalog-db"
 import type { CatalogItem } from "@/lib/catalog-db"
 import { CampaignCart } from "./_cart"
+import { CampaignHeroImage } from "./_hero-image"
 import { auth } from "@/lib/auth"
 import { db } from "@/lib/db/client"
 import { orgMembers } from "@/lib/db/schema"
@@ -101,11 +102,10 @@ export default async function PublicCampaignPage({ params }: Props) {
         {/* Design / Mockup */}
         {(campaign.design?.mockupUrl ?? campaign.design?.designFileUrl) && (
           <div className="flex justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <CampaignHeroImage
               src={campaign.design.mockupUrl ?? campaign.design.designFileUrl!}
+              fallbackUrl={campaign.design.designFileUrl ?? ""}
               alt={campaign.title}
-              className="max-h-80 object-contain rounded-lg"
             />
           </div>
         )}

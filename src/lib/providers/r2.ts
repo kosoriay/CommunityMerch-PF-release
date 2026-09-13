@@ -66,6 +66,20 @@ export function r2KeyFromUrl(url: string | null | undefined): string | null {
 }
 
 /**
+ * 公開URLのベース。**未設定なら null を返す**（例外を投げない）。
+ *
+ * 孤児掃除と cron の述語は、R2 が無い開発環境でも走る。そこで例外が出ると
+ * 掃除全体が止まるので、判定側が「設定されていない」を値として受け取れるようにする。
+ */
+export function r2PublicUrlOrNull(): string | null {
+  try {
+    return getR2().publicUrl
+  } catch {
+    return null
+  }
+}
+
+/**
  * Best-effort deletion of uploaded objects.
  *
  * Called after the database rows are already gone, so a storage failure must

@@ -1,13 +1,18 @@
 import { db } from "@/lib/db/client"
-import { designs, platformConfig } from "@/lib/db/schema"
-import { isNotNull } from "drizzle-orm"
-import { r2KeyFromUrl, deleteFromR2, listR2Objects } from "@/lib/providers/r2"
+import { campaignProducts, designs, platformConfig } from "@/lib/db/schema"
+import { deleteFromR2, listR2Objects, r2PublicUrlOrNull } from "@/lib/providers/r2"
+import { referencedKeysFrom } from "@/lib/r2-keys"
 
 /** R2 の一覧から、判定に必要な項目だけを取り出した形。 */
 export type R2Object = { key: string; lastModified: Date }
 
-/** こちらが書き込む接頭辞。ここ以外は掃除の対象にしない。 */
-export const SWEPT_PREFIXES = ["uploads/", "ai-designs/"] as const
+/**
+ * こちらが書き込む接頭辞。ここ以外は掃除の対象にしない。
+ *
+ * `mockups/` は 2026-09-11 に追加した。**同時に `collectReferencedKeys` へ
+ * モックアップ列を入れてある** — 片方だけ入れると、生きている画像が7日後に消える。
+ */
+export const SWEPT_PREFIXES = ["uploads/", "ai-designs/", "mockups/"] as const
 
 /** これより新しいオブジェクトは、参照が無くても消さない。 */
 export const GRACE_MS = 7 * 24 * 60 * 60 * 1000
@@ -49,33 +54,36 @@ export function selectOrphanKeys(args: {
 /**
  * いま参照されている R2 キーの集合。
  *
- * `designs.mockupUrl`、`campaignProducts.mockupUrl`、`campaignProducts.mockupUrls`
- * はいずれも Printful のファイルを指すので入れない。`r2KeyFromUrl` が null を
- * 返すため入れても無害だが、読んだ人が「モックアップも R2 にある」と誤解する。
- * 規約 4.6 によりモックアップの IP は Printful に帰属し、R2 へは落とさない。
+ * **2026-09-11 の変更（設計 §3・§8.2）:** モックアップも R2 に置くようになった。
+ * `campaign_products.mockup_urls` / `.mockup_url` と `designs.mockup_url` は
+ * **参照集合に入れなければならない。** 以前のコメントは「モックアップは Printful の
+ * ファイルを指すので入れない」と書いていたが、それは Printful が一時置き場を
+ * 返すという事実が分かる前の記述である。
  *
  * `platformConfig.logoUrl` は現状 `/api/upload` を通らないが、R2 の URL を入れる
  * ことはできるので防御的に含める。
  */
 export async function collectReferencedKeys(): Promise<Set<string>> {
-  const keys = new Set<string>()
+  const publicUrl = r2PublicUrlOrNull()
 
   const designRows = await db
-    .select({ url: designs.designFileUrl })
+    .select({ file: designs.designFileUrl, mockup: designs.mockupUrl })
     .from(designs)
-    .where(isNotNull(designs.designFileUrl))
-  for (const row of designRows) {
-    const key = r2KeyFromUrl(row.url)
-    if (key) keys.add(key)
-  }
+
+  const productRows = await db
+    .select({ one: campaignProducts.mockupUrl, many: campaignProducts.mockupUrls })
+    .from(campaignProducts)
 
   const configRows = await db.select({ url: platformConfig.logoUrl }).from(platformConfig)
-  for (const row of configRows) {
-    const key = r2KeyFromUrl(row.url)
-    if (key) keys.add(key)
-  }
 
-  return keys
+  return referencedKeysFrom(
+    [
+      ...designRows.flatMap((r) => [r.file, r.mockup]),
+      ...productRows.flatMap((r) => [r.one, r.many]),
+      ...configRows.map((r) => r.url),
+    ],
+    publicUrl
+  )
 }
 
 export type SweepResult = {
