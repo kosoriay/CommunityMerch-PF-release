@@ -198,6 +198,10 @@ export const orders = sqliteTable("orders", {
   printfulOrderId: text("printful_order_id"),
   // `refunded` is terminal: money has gone back to the buyer and the order no
   // longer counts toward revenue anywhere.
+  //
+  // `fulfilled` means "Printful accepted the order" — whatever Printful says
+  // about it afterwards. What Printful says lives in `printfulStatus` below,
+  // never here (設計 2026-09-21 §3・D1). Not renamed: there is no migration path.
   status: text("status", {
     enum: ["pending", "paid", "fulfilled", "shipped", "delivered", "refunded"],
   }).notNull().default("pending"),
@@ -219,6 +223,29 @@ export const orders = sqliteTable("orders", {
   // makes the action auditable and the job idempotent — the amount and the
   // campaign stay, so revenue history is unaffected.
   piiAnonymizedAt: integer("pii_anonymized_at", { mode: "timestamp" }),
+  // pending → paid の時刻。要対応の区分 B（発注されていない）の時計。
+  // updated_at で代用しない — 他の書き込みで時計が巻き戻る（設計 §3）。
+  // 既存の paid 行は NULL のまま。NULL は「古い」として扱う（fail-closed）。
+  paidAt: integer("paid_at", { mode: "timestamp" }),
+  // ── Printful が報告した状態（設計 §3）。`status` とは別に持つ（D1）──────────
+  // 以下の列を書くときは updated_at を更新しない。updated_at は PII の保持期間の
+  // 起点であり（order-pii.ts:57）、照会のたびに保持期間が延びてしまう。
+  //
+  // Printful の状態を**そのまま**。値の集合を TS の union で閉じない（Printful は
+  // enum を定義していない）。アプリが書く番兵値は "not_found"（404）だけ。
+  printfulStatus: text("printful_status"),
+  // 失敗・保留・取消の理由。webhook の data.reason にしか無い。最大 500 文字。
+  printfulStatusReason: text("printful_status_reason"),
+  // Printful の状態を最後に**観測できた**時刻。照会の失敗では更新しない。
+  printfulStatusCheckedAt: integer("printful_status_checked_at", { mode: "timestamp" }),
+  // 観測した注文の `updated`（Printful の Unix 秒のまま）。古い観測で新しい観測を
+  // 上書きしないために使う。mode を付けない — Date に変換させない。
+  printfulUpdatedAt: integer("printful_updated_at"),
+  // 運営者に最後に知らせた printful_status。同じ異常を2度知らせない。
+  printfulAlertedStatus: text("printful_alerted_status"),
+  // Printful への確認に**失敗した**時刻と理由。確認に成功したら NULL に戻す。
+  printfulCheckFailedAt: integer("printful_check_failed_at", { mode: "timestamp" }),
+  printfulCheckError: text("printful_check_error"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (t) => [

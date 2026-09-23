@@ -4,6 +4,7 @@ import { getOrder } from "@/lib/orders"
 import { formatCents } from "@/lib/format"
 import { getCatalogItem } from "@/lib/catalog-db"
 import { getOrCreateConfig } from "@/lib/platform-config"
+import { orderDisplayStage, ORDER_DISPLAY_STAGE_LABELS, type OrderDisplayStage } from "@/lib/order-display-stage"
 
 export const dynamic = "force-dynamic"
 
@@ -42,37 +43,18 @@ export default async function OrderConfirmationPage({ params, searchParams }: Pr
     ? (JSON.parse(order.shippingAddressJson) as ShippingAddress)
     : null
 
-  const isPaid =
-    order.status === "paid" ||
-    order.status === "fulfilled" ||
-    order.status === "shipped" ||
-    order.status === "delivered"
+  // 購入者には「支払い受領・準備中」までしか見せない。Printful 側の失敗は見せない
+  // （設計 2026-09-21 §8・D3）。以前は paid〜delivered を1つの真偽値に潰し、
+  // 確認メールを送ったかどうかを知らないまま「送った」と書いていた（C13）。
+  const stage = orderDisplayStage(order.status, order.printfulStatus)
+  const thanks = `Thank you${order.buyerName ? `, ${order.buyerName}` : ""}.`
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <div className="max-w-xl mx-auto px-4 py-12 space-y-6">
         {/* Status */}
         <div className="text-center space-y-2">
-          {isPaid ? (
-            <>
-              <div className="text-4xl">🎉</div>
-              <h1 className="text-2xl font-bold text-[#2E4057]">Order confirmed!</h1>
-              <p className="text-muted-foreground">
-                Thank you{order.buyerName ? `, ${order.buyerName}` : ""}.{" "}
-                {order.buyerEmail
-                  ? `A confirmation has been sent to ${order.buyerEmail}.`
-                  : ""}
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="text-4xl">⏳</div>
-              <h1 className="text-2xl font-bold text-[#2E4057]">Payment processing…</h1>
-              <p className="text-muted-foreground text-sm">
-                Your order is being confirmed. This page will reflect the final status shortly.
-              </p>
-            </>
-          )}
+          <StageHeading stage={stage} thanks={thanks} />
         </div>
 
         {/* Order details */}
@@ -120,7 +102,7 @@ export default async function OrderConfirmationPage({ params, searchParams }: Pr
 
           <div className="border-t pt-3 text-sm">
             <p className="text-muted-foreground">Status</p>
-            <p className="font-medium capitalize">{order.status}</p>
+            <p className="font-medium">{ORDER_DISPLAY_STAGE_LABELS[stage]}</p>
           </div>
         </div>
 
@@ -175,4 +157,50 @@ export default async function OrderConfirmationPage({ params, searchParams }: Pr
       </div>
     </div>
   )
+}
+
+function StageHeading({ stage, thanks }: { stage: OrderDisplayStage; thanks: string }) {
+  switch (stage) {
+    case "processing":
+      return (
+        <>
+          <div className="text-4xl">⏳</div>
+          <h1 className="text-2xl font-bold text-[#2E4057]">Payment processing…</h1>
+          <p className="text-muted-foreground text-sm">
+            Your order is being confirmed. This page will reflect the final status shortly.
+          </p>
+        </>
+      )
+    case "preparing":
+      return (
+        <>
+          <div className="text-4xl">🎉</div>
+          <h1 className="text-2xl font-bold text-[#2E4057]">Payment received</h1>
+          <p className="text-muted-foreground">{thanks} We&apos;re preparing your order.</p>
+        </>
+      )
+    case "in_production":
+      return (
+        <>
+          <div className="text-4xl">🎉</div>
+          <h1 className="text-2xl font-bold text-[#2E4057]">In production</h1>
+          <p className="text-muted-foreground">{thanks} Your order is being made.</p>
+        </>
+      )
+    case "shipped":
+      return (
+        <>
+          <div className="text-4xl">📦</div>
+          <h1 className="text-2xl font-bold text-[#2E4057]">Shipped</h1>
+          <p className="text-muted-foreground">{thanks} Your order is on its way.</p>
+        </>
+      )
+    case "refunded":
+      return (
+        <>
+          <h1 className="text-2xl font-bold text-[#2E4057]">Refunded</h1>
+          <p className="text-muted-foreground">This order has been refunded.</p>
+        </>
+      )
+  }
 }

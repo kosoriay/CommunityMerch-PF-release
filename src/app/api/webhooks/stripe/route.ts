@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       }
 
       const shippingAddress = session.collected_information?.shipping_details?.address ?? null
-      await markOrderPaid(orderId, {
+      const moved = await markOrderPaid(orderId, {
         stripePaymentIntentId: session.payment_intent as string,
         stripeCheckoutSessionId: session.id,
         buyerEmail: session.customer_details?.email ?? "",
@@ -66,7 +66,16 @@ export async function POST(request: NextRequest) {
         // 管理画面がそれを買い手の氏名として表示する（orders.ts:76 参照）。
         buyerName: session.customer_details?.name?.trim() || null,
         shippingAddressJson: shippingAddress ? JSON.stringify(shippingAddress) : "",
-      })
+      }, new Date())
+
+      // Stripe は同じイベントを再送する。pending から動かなかった（＝既に処理済み）
+      // なら何もしない。発注を予約すると、発送済み・返金済みの注文が再び発注処理に
+      // 入っていた（設計 2026-09-21 §7・C8）。1回目の配信で paid にした直後に落ちた
+      // 注文は、再送では発注されない — 要対応の区分 B が30分後に拾う。
+      if (!moved) {
+        console.log(`[webhook] checkout.session.completed: order ${orderId} is not pending — ignoring replay`)
+        return NextResponse.json({ received: true })
+      }
 
       // Runs after the 200 response is sent, but — unlike a bare floating
       // promise — after() keeps the serverless function alive until it

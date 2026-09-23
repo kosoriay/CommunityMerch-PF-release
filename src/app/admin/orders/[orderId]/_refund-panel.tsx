@@ -11,6 +11,8 @@ type Props = {
   organizationReturns: string
   platformAbsorbs: string
   orgName: string
+  /** 未発送で Printful に注文がある（設計 2026-09-21 §6.4）。判定は shouldWarnCancelInPrintfulFirst */
+  cancelInPrintfulFirst: boolean
 }
 
 export function RefundPanel({
@@ -20,6 +22,7 @@ export function RefundPanel({
   organizationReturns,
   platformAbsorbs,
   orgName,
+  cancelInPrintfulFirst,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [state, formAction, pending] = useActionState<RefundFormState | undefined, FormData>(
@@ -73,6 +76,29 @@ export function RefundPanel({
           Only when a replacement cannot resolve it. A refund does not return the production
           cost or the payment processing fee.
         </p>
+
+        {/* Refunding here moves money only. An unshipped Printful order is still
+            printed, shipped and charged to the operator unless it is canceled
+            there first (設計 2026-09-21 §6.4, D8). Advice, not a gate: checking
+            the cancellation needs a Printful lookup, and a failed lookup must
+            not hold up the buyer's money. */}
+        {cancelInPrintfulFirst && printfulOrderId && (
+          <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 space-y-1">
+            <p className="font-medium">Not shipped yet — cancel it in Printful first.</p>
+            <p>
+              Refunding here only returns the buyer&apos;s money. Printful will still print, ship,
+              and charge you for this order unless you cancel it there.
+            </p>
+            <a
+              href={`https://www.printful.com/dashboard/order/${printfulOrderId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-blue-600 hover:underline"
+            >
+              Open this order in Printful ↗
+            </a>
+          </div>
+        )}
 
         <dl className="text-sm rounded border bg-slate-50 divide-y">
           <div className="flex justify-between px-3 py-2">

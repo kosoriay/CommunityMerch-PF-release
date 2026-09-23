@@ -8,6 +8,7 @@ import { refundOrder } from "@/lib/refunds"
 import { submitFulfillment } from "@/lib/fulfillment"
 import { getOrder, updateShippingAddress } from "@/lib/orders"
 import { anonymizeSingleOrder } from "@/lib/order-pii"
+import { classifyPrintfulStatus } from "@/lib/printful-status"
 
 async function requirePlatformAdmin() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -67,6 +68,14 @@ export async function retryFulfillmentAction(
 ): Promise<RetryFormState> {
   await requirePlatformAdmin()
 
+  // paid の注文だけ。以前は返金済みの注文にもリトライが出ており、押すと
+  // Printful に発注できた（設計 2026-09-21 §6.3・§7）。
+  const before = await getOrder(orderId)
+  if (!before) return { error: "Order not found" }
+  if (before.status !== "paid") {
+    return { error: `This order is ${before.status}. Only a paid order that has not reached Printful can be retried.` }
+  }
+
   await submitFulfillment(orderId, { notifyOnFailure: false })
 
   // submitFulfillment records failures rather than throwing, so read the
@@ -78,6 +87,10 @@ export async function retryFulfillmentAction(
   if (!order) return { error: "Order not found" }
   if (order.fulfillmentError) {
     return { error: `Still failing: ${order.fulfillmentError}` }
+  }
+  // Printful が受け付けても、止めているなら「印刷に回った」とは言わない（設計 §6.3）
+  if (classifyPrintfulStatus(order.printfulStatus) === "needs_action") {
+    return { error: `Printful accepted the order but reports: ${order.printfulStatus}` }
   }
   return {
     success: order.printfulOrderId

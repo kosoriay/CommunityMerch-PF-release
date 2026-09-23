@@ -338,3 +338,108 @@ export async function sendRefundNotificationEmail(
     html,
   })
 }
+
+/**
+ * Operator alert: something happened to an order that its status says cannot
+ * happen — Printful created or shipped an order the buyer was already refunded for
+ * (設計 2026-09-21 §5.3 手順3・§5.4).
+ */
+export async function sendOrderAnomalyEmail(
+  to: string[],
+  data: {
+    orderId: string
+    headline: string
+    detail: string
+    campaignTitle: string
+    orgName: string
+    printfulOrderId: string | null
+    orderUrl: string | null
+    platformName: string
+  }
+): Promise<void> {
+  const html = `
+    <h2>${escapeHtml(data.headline)}</h2>
+    <p>${escapeHtml(data.detail)}</p>
+    <p>
+      <strong>Order:</strong> ${escapeHtml(data.orderId.slice(0, 8).toUpperCase())}<br>
+      <strong>Campaign:</strong> ${escapeHtml(data.campaignTitle)} · ${escapeHtml(data.orgName)}<br>
+      <strong>Printful order:</strong> ${escapeHtml(data.printfulOrderId ?? "unknown")}
+    </p>
+    ${data.orderUrl ? `<p><a href="${escapeHtml(data.orderUrl)}">Open the order →</a></p>` : ""}
+  `
+
+  if (!resend) {
+    console.log(`[email:order-anomaly] to=${to.join(",")} order=${data.orderId} headline=${data.headline}`)
+    return
+  }
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `⚠️ ${data.headline} — ${data.platformName}`,
+    html,
+  })
+}
+
+/** 運営者への Printful 状態の通知に載せる1件分。 */
+export type PrintfulStatusAlertItem = {
+  orderId: string
+  campaignTitle: string
+  orgName: string
+  printfulStatus: string
+  printfulStatusReason: string | null
+  printfulOrderId: string | null
+  guidance: string
+  orderUrl: string | null
+}
+
+/**
+ * Operator alert: Printful accepted orders and then stopped them (設計 2026-09-21 §5.2・§5.5).
+ *
+ * One message for one order (webhook, submission) or many (the daily check), so a
+ * backlog found on the first night arrives as one email, not a flood. `notes` carries
+ * run-level findings — an authorization failure, every lookup returning 404.
+ */
+export async function sendPrintfulStatusAlertEmail(
+  to: string[],
+  data: { platformName: string; items: PrintfulStatusAlertItem[]; notes: string[] }
+): Promise<void> {
+  const count = data.items.length
+  const headline = count === 0
+    ? "Printful status check needs your attention"
+    : count === 1
+      ? `Order ${data.items[0].orderId.slice(0, 8).toUpperCase()} is ${data.items[0].printfulStatus} at Printful`
+      : `${count} orders are stopped at Printful`
+  const notesHtml = data.notes.map((n) => `<p><strong>${escapeHtml(n)}</strong></p>`).join("")
+  const itemsHtml = data.items
+    .map((i) => `
+      <hr>
+      <p>
+        <strong>Order:</strong> ${escapeHtml(i.orderId.slice(0, 8).toUpperCase())}<br>
+        <strong>Printful status:</strong> ${escapeHtml(i.printfulStatus)}<br>
+        ${i.printfulStatusReason ? `<strong>Reason:</strong> ${escapeHtml(i.printfulStatusReason)}<br>` : ""}
+        <strong>Printful order:</strong> ${escapeHtml(i.printfulOrderId ?? "unknown")}<br>
+        <strong>Campaign:</strong> ${escapeHtml(i.campaignTitle)} · ${escapeHtml(i.orgName)}
+      </p>
+      <p>${escapeHtml(i.guidance)}</p>
+      ${i.orderUrl ? `<p><a href="${escapeHtml(i.orderUrl)}">Open the order →</a></p>` : ""}`)
+    .join("")
+  const html = `
+    <h2>${escapeHtml(headline)}</h2>
+    <p>The buyers have paid. Printful accepted these orders but is not producing them.</p>
+    ${notesHtml}
+    ${itemsHtml}
+  `
+
+  if (!resend) {
+    console.log(`[email:printful-status] to=${to.join(",")} orders=${data.items.map((i) => i.orderId).join(",")} notes=${data.notes.length}`)
+    return
+  }
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `⚠️ ${headline} — ${data.platformName}`,
+    html,
+  })
+}

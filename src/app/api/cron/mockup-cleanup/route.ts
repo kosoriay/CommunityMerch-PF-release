@@ -8,6 +8,16 @@ import { sweepOrphanedUploads } from "@/lib/orphaned-uploads"
 import { sweepExpiredOrderPII } from "@/lib/order-pii"
 import { needsRehost, referencedKeysFrom, acceptableMockupUrl } from "@/lib/r2-keys"
 import { r2PublicUrlOrNull, deleteFromR2 } from "@/lib/providers/r2"
+import { reconcilePrintfulStatuses, type ReconcileResult } from "@/lib/printful-reconcile"
+
+// 最終レビュー指摘：この route には maxDuration の指定が無かった。Printful の照会
+// （PRINTFUL_RECONCILE_TIME_BUDGET_MS = 60秒）を**どの分岐よりも先に**独立して走らせた
+// 後、キャンペーンの締切処理・PII 掃除・モックアップの再生成（商品1点あたり最大30秒の
+// ポーリングを含む）が直列に続く（設計 §5.5）。明示しないまま Vercel のプロジェクト側の
+// 既定値が変わると、後ろの分岐が時間切れで実行されない日が出かねない。300秒は現行の
+// Hobby プランでの上限（デフォルトでもある）で、照会の60秒を引いた約240秒を残りの
+// 分岐に残す。
+export const maxDuration = 300
 
 export async function GET(req: Request): Promise<NextResponse> {
   const authHeader = req.headers.get("Authorization")
@@ -17,6 +27,18 @@ export async function GET(req: Request): Promise<NextResponse> {
   }
 
   const now = new Date()
+
+  // Printful 側の状態の照会（設計 2026-09-21 §5.5）。**どの分岐よりも先に、独立して**
+  // 走らせる。以下の分岐は try の無い直列の await で分離されておらず、後ろに置くと
+  // 前の分岐の throw やモックアップの長いポーリングで照会が走らない日が出る。
+  let printfulReconcile: ReconcileResult | { error: string }
+  try {
+    printfulReconcile = await reconcilePrintfulStatuses(now)
+  } catch (err) {
+    console.error("[cron] Printful status reconcile failed:", err)
+    printfulReconcile = { error: err instanceof Error ? err.message : String(err) }
+  }
+
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
   const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
   // 分岐2（コード側の damping）と分岐4（SQL 側）が同じ窓を使う
@@ -244,5 +266,6 @@ export async function GET(req: Request): Promise<NextResponse> {
     designMockupUrlsCleared,
     orphanedUploadsDeleted: orphanSweep.deleted,
     ordersAnonymized: piiSweep.anonymized,
+    printfulReconcile,
   })
 }
