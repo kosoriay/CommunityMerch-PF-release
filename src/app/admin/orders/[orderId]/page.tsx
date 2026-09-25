@@ -2,17 +2,18 @@ import Link from "next/link"
 import { headers } from "next/headers"
 import { notFound } from "next/navigation"
 import { auth } from "@/lib/auth"
-import { getOrder } from "@/lib/orders"
+import { getOrder, getOrderAttentionCategory } from "@/lib/orders"
 import { getCatalogItem } from "@/lib/catalog-db"
 import { shortOrderId } from "@/lib/order-search"
 import { formatCents } from "@/lib/format"
 import { toPrintfulExternalId } from "@/lib/printful-ids"
-import { isRefundable } from "@/lib/order-status"
+import { isRefundable, shouldWarnCancelInPrintfulFirst, recoveryMessageForOrder } from "@/lib/order-status"
 import { orderRefundBreakdown } from "@/lib/refunds"
 import { OrderStatusBadge } from "../../_components/OrderStatusBadge"
 import { RefundPanel } from "./_refund-panel"
 import { RecoveryPanel } from "./_recovery-panel"
 import { PrivacyPanel } from "./_privacy-panel"
+import { PrintfulStatusPanel } from "./_printful-panel"
 import { anonymizeOrderAction } from "./_actions"
 import { DISPUTE_WINDOW_DAYS } from "@/lib/order-pii"
 
@@ -33,9 +34,11 @@ export default async function AdminOrderDetailPage({
   params: Promise<{ orderId: string }>
 }) {
   const { orderId } = await params
-  const [order, session] = await Promise.all([
+  const now = new Date()
+  const [order, session, attention] = await Promise.all([
     getOrder(orderId),
     auth.api.getSession({ headers: await headers() }),
+    getOrderAttentionCategory(orderId, now),
   ])
   if (!order) notFound()
 
@@ -57,7 +60,12 @@ export default async function AdminOrderDetailPage({
   // Only decides whether the extra confirmation appears. The server action
   // re-checks the window itself, so this cannot be bypassed from the client.
   const withinDisputeWindow =
-    new Date().getTime() - order.updatedAt.getTime() < DISPUTE_WINDOW_DAYS * 86_400_000
+    now.getTime() - order.updatedAt.getTime() < DISPUTE_WINDOW_DAYS * 86_400_000
+
+  // Retry is for a paid order that never reached Printful — never for one that
+  // has been refunded, which used to show it too (設計 2026-09-21 §6.3). Decision
+  // logic lives in recoveryMessageForOrder (src/lib/order-status.ts) and is tested there.
+  const recoveryError = recoveryMessageForOrder(order, attention)
 
   return (
     <div className="space-y-6">
@@ -78,11 +86,11 @@ export default async function AdminOrderDetailPage({
         </div>
       </div>
 
-      {order.fulfillmentError &&
+      {recoveryError &&
         (isPlatformAdmin ? (
           <RecoveryPanel
             orderId={order.id}
-            error={order.fulfillmentError}
+            error={recoveryError}
             attempts={order.fulfillmentAttempts}
             buyerName={order.buyerName}
             address={shipping}
@@ -90,13 +98,24 @@ export default async function AdminOrderDetailPage({
         ) : (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4">
             <p className="font-medium text-red-800 text-sm">Not sent to production</p>
-            <p className="text-sm text-red-700 mt-1">{order.fulfillmentError}</p>
+            <p className="text-sm text-red-700 mt-1">{recoveryError}</p>
             <p className="text-xs text-red-600 mt-2">
               Attempts: {order.fulfillmentAttempts}. The buyer has paid and is waiting. A
               platform admin can retry this.
             </p>
           </div>
         ))}
+
+      {(attention === "printful_stuck" || attention === "printful_unchecked") && (
+        <PrintfulStatusPanel
+          category={attention}
+          printfulStatus={order.printfulStatus}
+          printfulStatusReason={order.printfulStatusReason}
+          printfulCheckError={order.printfulCheckError}
+          printfulOrderId={order.printfulOrderId}
+          checkedAt={order.printfulStatusCheckedAt}
+        />
+      )}
 
       <Section title="Buyer">
         <Row label="Name" value={order.buyerName ?? "—"} />
@@ -182,6 +201,19 @@ export default async function AdminOrderDetailPage({
         />
         <Row label="Printful reference" value={<span className="font-mono text-xs">{toPrintfulExternalId(order.id)}</span>} />
         <Row
+          label="Printful status"
+          value={
+            <span className="text-xs">
+              {order.printfulStatus ?? "Not checked yet"}
+              {order.printfulStatusReason ? ` — ${order.printfulStatusReason}` : ""}
+              {" · checked "}
+              {order.printfulStatusCheckedAt
+                ? new Date(order.printfulStatusCheckedAt).toLocaleString()
+                : "never"}
+            </span>
+          }
+        />
+        <Row
           label="Tracking"
           value={
             order.trackingUrl ? (
@@ -257,6 +289,7 @@ export default async function AdminOrderDetailPage({
           organizationReturns={formatCents(breakdown.organizationReturnsCents)}
           platformAbsorbs={formatCents(breakdown.platformAbsorbsCents)}
           orgName={order.campaign.org.name}
+          cancelInPrintfulFirst={shouldWarnCancelInPrintfulFirst(order)}
         />
       ) : null}
 

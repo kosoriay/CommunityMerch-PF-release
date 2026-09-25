@@ -7,6 +7,8 @@ import { getCatalogItem } from "@/lib/catalog-db"
 export type OrgOrder = {
   id: string
   status: string
+  /** 段階表示（order-display-stage.ts）に使う。団体には生の値を見せない。 */
+  printfulStatus: string | null
   createdAt: Date
   buyerName: string | null
   buyerCity: string | null
@@ -57,6 +59,7 @@ export async function getOrgOrders(orgId: string): Promise<OrgOrder[]> {
       return {
         id: row.id,
         status: row.status,
+        printfulStatus: row.printfulStatus,
         createdAt: row.createdAt,
         buyerName: row.buyerName,
         buyerCity: address.city,

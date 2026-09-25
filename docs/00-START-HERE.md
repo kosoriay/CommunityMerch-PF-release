@@ -198,15 +198,20 @@ Tシャツなどのグッズを印刷して購入者の自宅に直接発送す�
    | Access level | **A single store** → 自分のストアを選択 |
    | BETA（新API）| **参加しない**（本アプリは v1 API を使用） |
 
-6. **スコープ**は以下をチェックする:
+6. **スコープ**は以下をチェックする（アプリが呼ぶ Printful API をコードから洗い出し、Printful の公式の API 定義と突き合わせた一覧。2026-09-21）:
 
-   | スコープ | 用途 |
-   |---------|------|
-   | View and manage orders of the authorized store | 注文の送信・重複確認 |
-   | View store products | サイズ・色から商品バリアントを解決、週次の価格同期 |
-   | View and manage store files | モックアップ画像の生成 |
-   | **View store webhooks** | **後述の Webhook 設定を確認するため** |
-   | **View and manage store webhooks** | **後述の Webhook 設定を行うため** |
+   | 画面の表記 | 公式の scope 名 | アプリが呼ぶ API | 用途 | 確認の状態 |
+   |---|---|---|---|---|
+   | View and manage orders of the authorized store | `orders` | `POST /orders` | 注文の送信 | 公式の API 定義で確認 |
+   | View orders of the authorized store（※1） | `orders/read` | `GET /orders/@{id}` | 重複の確認、Printful 上の状態の照会（毎日0時 UTC と、状態の Webhook を受けたとき） | scope は公式の API 定義で確認。画面の表記は未確認 |
+   | View store products（※2） | 指定なし | `GET /products/{id}` | サイズ・色から商品バリアントを解決、週次の価格同期 | 公式の API 定義では scope 不要。実トークンでは未確認 |
+   | View and manage store files（※2） | 指定なし | `POST /mockup-generator/create-task/{id}`・`GET /mockup-generator/task` | モックアップ画像の生成 | 同上 |
+   | **View store webhooks** | `webhooks/read` | `GET /webhooks` | 後述の Webhook 設定を確認するため | 403 の実例（下の ⚠️）で確認 |
+   | **View and manage store webhooks** | `webhooks` | `POST /webhooks`・`GET /webhooks` | 後述の Webhook 設定を行うため | 公式の API 定義で確認 |
+
+   ※1 注文の**読み取り**の項目です。画面での正確な表記は確かめられていません。注文の項目が2つ（閲覧だけ／閲覧と管理）あれば**両方**チェックしてください。
+   Printful が「管理」の scope だけで「閲覧」を要求しないのか、別に必要とするのかは**未確認**です（下の ⚠️ の403の実例は、webhook スコープを一切持たないトークンで発生したもので、「管理はあるが閲覧は無い」トークンでは試していません）。安全側に倒し、閲覧・管理の**両方**をチェックしておいてください。
+   ※2 公式の API 定義上は要りませんが、実際のトークンで外して試していないため、**チェックしたままにしてください。**
 
    商品の作成・変更は行わないため、そのスコープは不要です。
 
@@ -233,10 +238,12 @@ Tシャツなどのグッズを印刷して購入者の自宅に直接発送す�
 
 **⚠️ 支払い方法の登録（必須）:**
 
-注文が入ると、印刷・発送費用は **あなたの Printful アカウントに登録されたカード**へ自動で請求されます（売上はそれより多く入金されるので損はしません）。**カードが未登録だと注文の確定が失敗し、商品が発送されません。**
+注文が入ると、印刷・発送費用は **あなたの Printful アカウントに登録されたカード**へ自動で請求されます（売上はそれより多く入金されるので損はしません）。**カードが未登録だと、Printful は注文をいったん受け付けたあとで「Failed（失敗）」にし、商品は発送されません。** カードを後から登録しても、**失敗した注文は自動では進みません**（Printful の Orders 画面で確定し直す必要があります）。
 
 1. Printful ダッシュボード → **Billing**（請求）→ **Payment methods**
 2. クレジットカードを登録（ビジネス用カード推奨）
+
+> 💡 **Printful で注文が止まったときの見え方と直し方:** 管理ダッシュボード最上段の **Needs attention** に「**Stopped at Printful**」として出て、運営者（platform_admin）にメールが届きます。多くは支払い方法の未登録です。上の手順でカードを登録し、Printful の **Orders** で該当注文を開いて **Confirm** し直してください。画面の各行に、その状態での直し方が表示されます。詳しくは末尾の「よくある質問」。
 
 > 💡 注文は標準で「自動確定」され、そのまま印刷工程に進みます。立ち上げ期に1件ずつ手動で確認したい場合は、Vercel の環境変数に `PRINTFUL_AUTO_CONFIRM` = `false` を設定すると、注文が Printful 上で「ドラフト」として止まり、あなたが Printful 画面で Confirm を押すまで印刷・課金されません（押し忘れは配送遅延になるので、慣れたら自動確定に戻すことを推奨します）。
 
@@ -398,6 +405,14 @@ X7kPqR2mNvLwHs4cBjYeAf9dZuMtGnVo1iCxKpEb6=
 | `CLOUDFLARE_R2_PUBLIC_URL` | ☐ |
 | `OPENAI_API_KEY` | ☐（任意） |
 | `CRON_SECRET` | ☐ |
+
+環境変数の他に、**値としては残らない設定**が1つあります。これも済ませてから進みます:
+
+| 設定 | 済み |
+|------|------|
+| Printful に**支払い方法**を登録した（Billing → Payment methods。手順は「1-5. Printful」の「⚠️ 支払い方法の登録」） | ☐ |
+
+> ⚠️ **この設定は、未登録でもこの先の手順がすべて進んでしまいます。**セットアップ画面も検査できません（Printful はこの設定の有無を外から確認する手段を提供していません）。未登録のまま注文が入ると、**購入者は支払いを済ませているのに商品が発送されません。**
 
 ---
 
@@ -598,13 +613,16 @@ Stripe の仕様で、「注文の通知」と「団体の口座連携完了の�
 1. [https://www.printful.com](https://www.printful.com) にログイン
 2. **「Settings」** → **「API」** → **「Webhooks」** タブ
 3. Webhook URL: `https://（あなたのURL）.vercel.app/api/webhooks/printful?secret=（好きなランダム文字列）`
-4. **イベントを3つ有効にする** — ここを飛ばすと、対応する機能が動きません:
+4. **イベントを9つ有効にする** — ここを飛ばすと、対応する機能が動きません:
 
    | イベント | 有効にしないと起きること |
    |---|---|
    | **Package shipped** | 買い手に発送通知メールが届かず、追跡番号も記録されない |
    | **Order refunded** | Printful が再印刷クレームを認めて**製造費を返金しても、気付けない** |
    | **Package returned** | 住所不備などで**商品が返送されても、気付けない**。買い手は支払い済みで手元に何も無い |
+   | **Order failed** / **Order canceled** / **Order put on hold** / **Order put on hold (approval)** / **Order removed from hold** / **Order updated** | Printful が受け付けた後で注文を止めても（支払い方法の未登録など）、**気付くのが最大1日遅れる**（毎日0時 UTC の定期照会が拾うまで） |
+
+   > 管理画面にこの6つが並ぶかは確かめられていません。見当たらなければ、下の「画面が見つからない場合」の API の手順で**9つまとめて**登録してください。
 
 5. 設定を保存 → URL に入れたランダム文字列を `PRINTFUL_WEBHOOK_SECRET` に登録
 
@@ -639,9 +657,9 @@ curl -s -H "Authorization: Bearer あなたのPRINTFUL_API_KEY" \
   https://api.printful.com/webhooks
 ```
 
-`url` と `types` が返ります。**`types` に `order_refunded` と `package_returned` が無ければ、手順2が必要です。**
+`url` と `types` が返ります。**`types` に手順2の9種類が揃っていなければ、手順2が必要です。**
 
-**手順2 — 3つまとめて設定する**
+**手順2 — 9つまとめて設定する**
 
 ```bash
 curl -s -X POST https://api.printful.com/webhooks \
@@ -649,11 +667,11 @@ curl -s -X POST https://api.printful.com/webhooks \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://（あなたのURL）.vercel.app/api/webhooks/printful?secret=（PRINTFUL_WEBHOOK_SECRETと同じ値）",
-    "types": ["package_shipped", "order_refunded", "package_returned"]
+    "types": ["package_shipped", "order_refunded", "package_returned", "order_failed", "order_canceled", "order_put_hold", "order_put_hold_approval", "order_remove_hold", "order_updated"]
   }'
 ```
 
-> ⚠️ **必ず3つ同時に指定してください。** この設定が既存の指定を置き換えるのか追記するのかは公式ドキュメントに明記がありません。3つまとめて送れば、どちらの挙動でも正しい結果になります。1つずつ追加すると、置き換え動作だった場合に `package_shipped` を失い、**発送通知が止まります。**
+> ⚠️ **必ず9つ同時に指定してください。** Printful の公式の API 定義に「1ストアで有効な Webhook URL は1つだけで、この呼び出しは既存の設定をすべて無効にする」とあります（**置き換え**）。1つずつ送ると最後に送ったものしか残らず、**発送通知や、注文が止まったことの検知が止まります。**
 
 **手順3 — Printful のシミュレーターで実際に送ってみる**
 
@@ -668,7 +686,7 @@ curl -s -X POST https://api.printful.com/webhooks \
 
 **手順4 — 登録内容を確認する**
 
-手順1をもう一度実行し、`types` に3つ揃っていること、`secret=` の値が Vercel の環境変数と一致していることを確認してください。
+手順1をもう一度実行し、`types` に9つ揃っていること、`secret=` の値が Vercel の環境変数と一致していることを確認してください。
 
 > ⚠️ **secret を後から変更した場合は、手順2をやり直してください。** 環境変数だけ変えて登録を更新しないと、Printful は古い値で送信し、アプリは 401 で弾きます。**この失敗はどこにもエラーが出ません。**
 
@@ -722,6 +740,8 @@ webhook スコープの取り込みは、**2年ごとのトークン更新のタ
 
 **この手順を飛ばすと、プルリクエストを出しただけで稼働中のストアのデータベースが書き換わります。**
 理由は 1-3 の「なぜ2つ必要なのか」に書きました。ここでその設定を行います。
+
+> 🔴 **分けないと、古いブランチのプレビューが本番の列を消しうる。** ビルドのたびに `drizzle-kit push --force` が、**そのブランチのコードにある表の定義**で DB を上書きします。列を足したアップデートを受け取った**後で**、それより前に作ったブランチのプレビューが1つでもビルドされると、本番の表からその列が削除されます（消えた列のデータは戻りません）。
 
 作業は3つです。**順番どおりに行ってください。**
 
@@ -845,6 +865,8 @@ Printful にはテストモードがありません。代わりに、**プレビ
 ⚠️ が表示されている場合は Vercel の環境変数設定を確認してください。
 全て ✅ でなくても **「Continue →」** で進めます（後から設定可能です）。
 
+> ⚠️ ✅ は「環境変数に値が入っている」ことしか表しません。値が正しいか、各サービス側の設定が済んでいるかは見ていません。特に **Printful の支払い方法は、✅ になっていても未登録のことがあります。**Phase 1 完了チェックリストの下の表で確認してください。
+
 ---
 
 ### 5-5. Step 9: ローンチ
@@ -935,6 +957,19 @@ Turso の無料枠は**データベース100個まで**なので、2つ目を作
 
 **Q: すでに1つのデータベースで運用を始めてしまった。どうすればいい？**
 A: **本番のデータは動かしません。**新しく作るのは**空のプレビュー用データベースの方**です。1-3 の手順7でプレビュー用を1つ作り、4-5 の①②を行ってください。データの移行もダウンタイムもありません。
+
+**Q: 管理ダッシュボードの「Needs attention」に注文が出た。どうすればいい？**
+A: 見出しごとに直し方が違います。どれも**買い手は支払い済み**です。
+- **Not sent to production** — Printful への発注そのものが失敗しました。注文を開き、住所を直すなどしてから **Retry** を押します。全件が認証エラーなら Printful トークンの失効を疑ってください（1-5）
+- **Paid but never sent to Printful** — 支払いの後、発注処理が途中で止まりました（30分以上）。注文を開いて **Retry** を押します
+- **Stopped at Printful** — Printful は注文を受け付けたあとで止めています（`failed` / `onhold` / `canceled` / `draft` など）。各行に出る指示に従います。多くは支払い方法の未登録で、カードを登録してから Printful の **Orders** で **Confirm** し直します
+- **Printful status not confirmed** — Printful に状態を確認できていません。Printful の再送か翌日の定期照会で消えることが多いです。消えなければ Printful トークンの失効を疑ってください
+
+同じ内容は運営者（platform_admin。いなければサポート窓口）にメールでも届きます。**メールは届かないことがあります。画面が正です。**
+
+**Q: 注文を返金したい。順番は？**
+A: **発送前なら、先に Printful で注文を取り消してから、アプリで返金してください。** アプリの返金ボタンは、購入者へのお金を Stripe で戻すだけで、Printful の注文には何もしません。先に返金すると、Printful はそのまま印刷・発送し、製造費をあなたに請求します（購入者は返金を受けたうえで商品も届きます）。返金パネルにも同じ注意が出ます。
+発送済みなら取り消せません。不良品なら返金パネルの「1. Request a free replacement」（Printful の再印刷クレーム）を先に検討してください。
 
 **Q: うまくいかない場合は？**
 A: プラットフォーム提供者までご連絡ください。

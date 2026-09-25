@@ -1,6 +1,15 @@
-import { getOrder, markOrderFulfilled, markFulfillmentFailed } from "@/lib/orders"
-import { alertFulfillmentFailure } from "@/lib/fulfillment-alerts"
-import { getPrintfulVariantId, submitPrintfulOrder } from "@/lib/providers/printful"
+import {
+  getOrder,
+  markOrderFulfilled,
+  markFulfillmentFailed,
+  recordPrintfulOrderIdIfMissing,
+  recordPrintfulObservation,
+  recordPrintfulCheckFailure,
+  claimPrintfulAlert,
+} from "@/lib/orders"
+import { alertFulfillmentFailure, alertPrintfulStatusProblems, alertOrderAnomaly } from "@/lib/fulfillment-alerts"
+import { getPrintfulVariantId, submitPrintfulOrder, isPrintfulAutoConfirm } from "@/lib/providers/printful"
+import type { PrintfulOrderResult } from "@/lib/providers/printful"
 import { sendOrderConfirmationEmail } from "@/lib/email"
 import { getCatalogItem } from "@/lib/catalog-db"
 import { getOrCreateConfig } from "@/lib/platform-config"
@@ -42,9 +51,10 @@ export async function submitFulfillment(
       return
     }
 
-    // Skip if already fulfilled (idempotency guard)
-    if (order.status === "fulfilled" || order.status === "shipped" || order.status === "delivered") {
-      console.log(`[fulfillment] skipping — already ${order.status}: ${orderId}`)
+    // paid の注文だけを発注する。以前は fulfilled / shipped / delivered だけを
+    // 弾いており、pending と refunded を通していた（設計 2026-09-21 §7・C6）。
+    if (order.status !== "paid") {
+      console.log(`[fulfillment] skipping — order is ${order.status}: ${orderId}`)
       return
     }
 
@@ -148,30 +158,40 @@ export async function submitFulfillment(
       packingSlip
     )
 
-    // Update order status
-    await markOrderFulfilled(orderId, printfulOrder.id)
+    // paid → fulfilled。遷移したかどうかで、この後にやることが決まる（設計 §5.3）
+    const now = new Date()
+    const moved = await markOrderFulfilled(orderId, printfulOrder.id, now)
 
-    // Send order confirmation email
-    if (order.buyerEmail) {
-      await sendOrderConfirmationEmail(order.buyerEmail, {
-        orderId,
-        buyerName: order.buyerName?.trim() || "Customer",
-        campaignTitle: order.campaign.title,
-        orgName: order.campaign.org.name,
-        items: order.items.map((i, idx) => ({
-          name: catalogNames[idx] ?? i.product.printfulVariantId,
-          size: i.size,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-        })),
-        totalAmountCents: order.totalAmountCents,
-        shippingAddress: shipping,
-        platformName: config?.platformName ?? "the platform",
-        supportEmail: config?.supportEmail ?? null,
-      })
+    // ここから先は Printful が注文を受け付けた後。失敗しても「発注できなかった」
+    // ことにはしない（fail() に流さない）。以前は確認メールの throw が fail() に
+    // 落ち、fulfilled のまま fulfillmentError が立って抜け出せなかった（C4）。
+    await afterPrintfulAccepted(orderId, printfulOrder, moved, now)
+
+    if (moved && order.buyerEmail) {
+      // 確認メールは遷移した側だけが送る。二重押しや after とリトライの並行でも1通
+      try {
+        await sendOrderConfirmationEmail(order.buyerEmail, {
+          orderId,
+          buyerName: order.buyerName?.trim() || "Customer",
+          campaignTitle: order.campaign.title,
+          orgName: order.campaign.org.name,
+          items: order.items.map((i, idx) => ({
+            name: catalogNames[idx] ?? i.product.printfulVariantId,
+            size: i.size,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+          })),
+          totalAmountCents: order.totalAmountCents,
+          shippingAddress: shipping,
+          platformName: config?.platformName ?? "the platform",
+          supportEmail: config?.supportEmail ?? null,
+        })
+      } catch (err) {
+        console.error(`[fulfillment] confirmation email failed: order=${orderId}`, err)
+      }
     }
 
-    console.log(`[fulfillment] completed: order=${orderId} printful=${printfulOrder.id}`)
+    console.log(`[fulfillment] completed: order=${orderId} printful=${printfulOrder.id} transitioned=${moved}`)
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown fulfillment error"
     console.error(`[fulfillment] failed: order=${orderId}`, message)
@@ -189,5 +209,52 @@ export async function submitFulfillment(
           }
         : undefined
     )
+  }
+}
+
+/**
+ * Printful が注文を受け付けた後の記録（設計 §5.3 手順3〜5）。例外を投げない。
+ *
+ * - 遷移しなかった（発注の最中に返金された等）なら、Printful 上に注文が実在する
+ *   事実を残し、運営者に知らせる。ただし並行した別の経路が先に fulfilled にした
+ *   だけなら、異常ではない
+ * - 観測した Printful の状態を記録する（遷移の有無にかかわらず）
+ * - 遷移した場合だけ、通知の権利を取って知らせる
+ */
+async function afterPrintfulAccepted(
+  orderId: string,
+  printfulOrder: PrintfulOrderResult,
+  moved: boolean,
+  now: Date
+): Promise<void> {
+  try {
+    if (!moved) {
+      await recordPrintfulOrderIdIfMissing(orderId, printfulOrder.id)
+      const current = await getOrder(orderId)
+      if (current && !["fulfilled", "shipped", "delivered"].includes(current.status)) {
+        await alertOrderAnomaly({
+          orderId,
+          campaignTitle: current.campaign.title,
+          orgName: current.campaign.org.name,
+          printfulOrderId: String(printfulOrder.id),
+          anomaly: { kind: "created_after_refund", status: current.status },
+        })
+      }
+    }
+
+    if (printfulOrder.status === null) {
+      // null で書くと警報が消える。確認の失敗として残す（§5.1 末尾・§5.6）
+      await recordPrintfulCheckFailure(orderId, "submit", "Printful response had no order status", now)
+    } else {
+      await recordPrintfulObservation(orderId, { status: printfulOrder.status, updated: printfulOrder.updated }, null, "submit", now)
+    }
+
+    if (moved) {
+      const claim = await claimPrintfulAlert(orderId, isPrintfulAutoConfirm())
+      if (claim) await alertPrintfulStatusProblems([claim])
+    }
+  } catch (err) {
+    // 記録できなくても、定期照会（§5.5）が printful_status の無い fulfilled 行を拾う
+    console.error(`[fulfillment] could not record Printful status: order=${orderId}`, err)
   }
 }

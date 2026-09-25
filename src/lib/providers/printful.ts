@@ -1,4 +1,5 @@
 import { toPrintfulExternalId } from "@/lib/printful-ids"
+import { PRINTFUL_FETCH_TIMEOUT_MS } from "@/lib/printful-status"
 
 if (!process.env.PRINTFUL_API_KEY) throw new Error("PRINTFUL_API_KEY is required")
 
@@ -48,10 +49,75 @@ export type PrintfulPackingSlip = {
   logo_url?: string
 }
 
+/**
+ * 発注の応答（または重複時に取り直した既存注文）から、このアプリが使う部分だけ。
+ * `status` / `updated` は Printful の値そのまま。欠けていれば null
+ * （呼び出し側が「確認の失敗」として扱う。null で警報を消さない — 設計 §5.1）。
+ */
 export type PrintfulOrderResult = {
   id: number
-  external_id: string
-  status: string
+  status: string | null
+  updated: number | null
+}
+
+/** GET /orders/@{external_id} の結果。**throw しない。** 失敗の種類で呼び出し側が分岐する。 */
+export type PrintfulOrderLookup =
+  | { kind: "found"; order: { id: number; status: string; updated: number | null } }
+  | { kind: "not_found" }
+  | { kind: "rate_limited" }
+  | { kind: "unauthorized"; httpStatus: number }
+  | { kind: "error"; message: string }
+
+/** Printful の自動確定が有効か。submitPrintfulOrder と通知の判定（§4.3）が同じ値を見る。 */
+export function isPrintfulAutoConfirm(): boolean {
+  return process.env.PRINTFUL_AUTO_CONFIRM !== "false"
+}
+
+type RawPrintfulOrder = { id?: unknown; status?: unknown; updated?: unknown }
+
+/** 応答の `result` を検証して取り出す。id が数値でなければ null。 */
+function parsePrintfulOrder(raw: RawPrintfulOrder | undefined): PrintfulOrderResult | null {
+  if (!raw || typeof raw.id !== "number") return null
+  return {
+    id: raw.id,
+    status: typeof raw.status === "string" && raw.status !== "" ? raw.status : null,
+    updated: typeof raw.updated === "number" ? raw.updated : null,
+  }
+}
+
+/**
+ * Printful 上の注文の現在の状態を取る（設計 §5.4）。**例外を投げない。**
+ *
+ * 404 は「存在しない」、429 は「照会のペースの問題」、401/403 は「トークン」、
+ * それ以外（ネットワーク・タイムアウト・5xx・非JSON・status 欠落）はすべて error。
+ */
+export async function getPrintfulOrder(externalId: string): Promise<PrintfulOrderLookup> {
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}/orders/@${externalId}`, {
+      headers: { Authorization: AUTH },
+      signal: AbortSignal.timeout(PRINTFUL_FETCH_TIMEOUT_MS),
+    })
+  } catch (err) {
+    const name = err instanceof Error ? err.name : ""
+    const message = err instanceof Error ? err.message : String(err)
+    return { kind: "error", message: name === "TimeoutError" ? "timeout" : `network: ${message}` }
+  }
+
+  if (res.status === 404) return { kind: "not_found" }
+  if (res.status === 429) return { kind: "rate_limited" }
+  if (res.status === 401 || res.status === 403) return { kind: "unauthorized", httpStatus: res.status }
+  if (!res.ok) return { kind: "error", message: `HTTP ${res.status}` }
+
+  let body: { result?: RawPrintfulOrder }
+  try {
+    body = (await res.json()) as { result?: RawPrintfulOrder }
+  } catch {
+    return { kind: "error", message: "invalid JSON" }
+  }
+  const order = parsePrintfulOrder(body.result)
+  if (!order || order.status === null) return { kind: "error", message: "response has no order status" }
+  return { kind: "found", order: { id: order.id, status: order.status, updated: order.updated } }
 }
 
 // Fetch the current Printful price (in cents) for one specific variant of a
@@ -154,7 +220,7 @@ export async function submitPrintfulOrder(
       : {}),
   }
 
-  const autoConfirm = process.env.PRINTFUL_AUTO_CONFIRM !== "false"
+  const autoConfirm = isPrintfulAutoConfirm()
 
   const res = await fetch(`${BASE_URL}/orders${autoConfirm ? "?confirm=1" : ""}`, {
     method: "POST",
@@ -167,7 +233,7 @@ export async function submitPrintfulOrder(
 
   const data = await res.json() as {
     code: number
-    result?: PrintfulOrderResult
+    result?: RawPrintfulOrder
     // Printful returns error sometimes as a string, sometimes as {reason, message}
     error?: string | { reason?: string; message?: string }
   }
@@ -179,15 +245,22 @@ export async function submitPrintfulOrder(
         : data.error?.message ?? data.error?.reason ?? `HTTP ${res.status}`
     // Check for duplicate order (idempotency) — Printful returns 400 with "Order with this external_id already exists"
     if (errorMessage.includes("external_id")) {
-      // Already submitted — look up and return the existing order
-      const existing = await fetch(`${BASE_URL}/orders/@${externalId}`, {
-        headers: { Authorization: AUTH },
-      })
-      const existingData = await existing.json() as { result: PrintfulOrderResult }
-      return existingData.result
+      // Already submitted — look up and return the existing order. The lookup
+      // is validated: returning an unchecked body here once let a failed
+      // lookup pass as a successful submission (設計 2026-09-21 §5.3 手順1).
+      const existing = await getPrintfulOrder(externalId)
+      if (existing.kind !== "found") {
+        const detail = existing.kind === "error" ? existing.message
+          : existing.kind === "unauthorized" ? `HTTP ${existing.httpStatus}`
+          : existing.kind
+        throw new Error(`Printful order already exists but could not be read back: ${detail}`)
+      }
+      return existing.order
     }
     throw new Error(`Printful order submission failed: ${errorMessage}`)
   }
 
-  return data.result!
+  const order = parsePrintfulOrder(data.result)
+  if (!order) throw new Error("Printful accepted the order but returned no order id")
+  return order
 }

@@ -11,11 +11,13 @@ vi.mock("@/lib/platform-config", () => ({
 }))
 
 const sendEmail = vi.fn()
+const sendStatusEmail = vi.fn()
 vi.mock("@/lib/email", () => ({
   sendFulfillmentFailureEmail: (...a: unknown[]) => sendEmail(...a),
+  sendPrintfulStatusAlertEmail: (...a: unknown[]) => sendStatusEmail(...a),
 }))
 
-import { alertFulfillmentFailure } from "@/lib/fulfillment-alerts"
+import { alertFulfillmentFailure, alertPrintfulStatusProblems } from "@/lib/fulfillment-alerts"
 
 const params = {
   orderId: "order-1",
@@ -30,6 +32,7 @@ beforeEach(() => {
   findUsers.mockReset()
   getConfig.mockReset()
   sendEmail.mockReset()
+  sendStatusEmail.mockReset()
   getConfig.mockResolvedValue({ platformName: "SwagFund", supportEmail: "help@swagfund.org" })
   sendEmail.mockResolvedValue(undefined)
 })
@@ -87,5 +90,42 @@ describe("alertFulfillmentFailure", () => {
     sendEmail.mockRejectedValue(new Error("Resend down"))
 
     await expect(alertFulfillmentFailure(params)).resolves.toBeUndefined()
+  })
+})
+
+describe("alertPrintfulStatusProblems", () => {
+  const claim = {
+    orderId: "order-1",
+    printfulStatus: "failed",
+    printfulStatusReason: "Card declined",
+    printfulOrderId: "171452698",
+    campaignTitle: "Spring Fundraiser",
+    orgName: "Lincoln PTA",
+  }
+
+  it("sends nothing when there is nothing to report", async () => {
+    findUsers.mockResolvedValue([{ email: "a@example.com" }])
+    await expect(alertPrintfulStatusProblems([], [])).resolves.toBe(true)
+    expect(sendStatusEmail).not.toHaveBeenCalled()
+  })
+
+  it("sends one message with the fix for each order (control)", async () => {
+    findUsers.mockResolvedValue([{ email: "a@example.com" }])
+    await expect(alertPrintfulStatusProblems([claim, { ...claim, orderId: "order-2" }], ["note"])).resolves.toBe(true)
+    expect(sendStatusEmail).toHaveBeenCalledTimes(1)
+    const [to, data] = sendStatusEmail.mock.calls[0]
+    expect(to).toEqual(["a@example.com"])
+    expect(data.items.map((i: { orderId: string }) => i.orderId)).toEqual(["order-1", "order-2"])
+    expect(data.items[0].guidance).toMatch(/payment method/i)
+    expect(data.notes).toEqual(["note"])
+  })
+
+  it("never throws, and reports the failure through its return value so the caller can release its claim (最終レビュー 🔴)", async () => {
+    // Was `.resolves.toBeUndefined()` — the function was void and best-effort-swallowed
+    // everything. The reconcile digest (printful-reconcile.ts) now needs to know a send
+    // failed so it can release the alert claim it already took; `false` carries that,
+    // while still never throwing into the caller's loop.
+    findUsers.mockRejectedValue(new Error("database down"))
+    await expect(alertPrintfulStatusProblems([claim])).resolves.toBe(false)
   })
 })

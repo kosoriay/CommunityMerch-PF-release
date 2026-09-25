@@ -6,14 +6,17 @@ import { requireOrgAccess } from "@/lib/middleware/require-org-access"
 import { getOrgOrders } from "@/lib/orgs-orders"
 import { formatCents } from "@/lib/format"
 import { shortOrderId } from "@/lib/order-search"
+import { orderDisplayStage, ORDER_DISPLAY_STAGE_LABELS, type OrderDisplayStage } from "@/lib/order-display-stage"
 
 export const dynamic = "force-dynamic"
 
-const STATUS_STYLES: Record<string, string> = {
-  paid: "bg-blue-100 text-blue-700",
-  fulfilled: "bg-indigo-100 text-indigo-700",
+// 購入者と同じ段階を見せる（設計 2026-09-21 §8.2・D4）。団体は Printful の失敗を
+// 直せないが、「Fulfilled」と出すのは事実に反する。
+const STAGE_STYLES: Record<OrderDisplayStage, string> = {
+  processing: "bg-slate-100 text-slate-700",
+  preparing: "bg-blue-100 text-blue-700",
+  in_production: "bg-indigo-100 text-indigo-700",
   shipped: "bg-amber-100 text-amber-700",
-  delivered: "bg-green-100 text-green-700",
   refunded: "bg-red-100 text-red-700",
 }
 
@@ -63,7 +66,9 @@ export default async function OrgOrdersPage({ params }: Props) {
         </div>
       ) : (
         <div className="rounded-lg border bg-white divide-y">
-          {orders.map((order) => (
+          {orders.map((order) => {
+            const stage = orderDisplayStage(order.status, order.printfulStatus)
+            return (
             <div
               key={order.id}
               className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between px-4 py-3"
@@ -84,12 +89,8 @@ export default async function OrgOrdersPage({ params }: Props) {
                 </p>
               </div>
               <div className="flex items-center gap-3 text-xs shrink-0">
-                <span
-                  className={`px-2 py-0.5 rounded capitalize ${
-                    STATUS_STYLES[order.status] ?? "bg-slate-100 text-slate-700"
-                  }`}
-                >
-                  {order.status}
+                <span className={`px-2 py-0.5 rounded ${STAGE_STYLES[stage]}`}>
+                  {ORDER_DISPLAY_STAGE_LABELS[stage]}
                 </span>
                 <span
                   className={
@@ -102,7 +103,8 @@ export default async function OrgOrdersPage({ params }: Props) {
                 </span>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
