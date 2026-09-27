@@ -1,5 +1,5 @@
 import { toPrintfulExternalId } from "@/lib/printful-ids"
-import { PRINTFUL_FETCH_TIMEOUT_MS } from "@/lib/printful-status"
+import { PRINTFUL_FETCH_TIMEOUT_MS, PRINTFUL_WEBHOOK_PROBE_TIMEOUT_MS } from "@/lib/printful-status"
 
 if (!process.env.PRINTFUL_API_KEY) throw new Error("PRINTFUL_API_KEY is required")
 
@@ -263,4 +263,111 @@ export async function submitPrintfulOrder(
   const order = parsePrintfulOrder(data.result)
   if (!order) throw new Error("Printful accepted the order but returned no order id")
   return order
+}
+
+export type PrintfulWebhookConfig = { url: string; types: string[] }
+
+export type PrintfulWebhookLookup =
+  | { kind: "found"; config: PrintfulWebhookConfig }
+  | { kind: "none" }               // 未登録（P6・未確認の挙動を吸収する分岐。設計 §3.2）
+  | { kind: "unauthorized"; httpStatus: number }
+  | { kind: "error"; message: string }
+
+type RawWebhookResult = { url?: unknown; types?: unknown } | string | null | undefined
+
+function isEmptyWebhookResult(raw: RawWebhookResult): boolean {
+  if (raw === null || raw === undefined) return true
+  if (typeof raw === "string") return true // Printful が result:"Not found" のような文字列で返す場合
+  return typeof raw.url !== "string" || raw.url === ""
+}
+
+/**
+ * 現在登録されている webhook のURLとイベント種類を確認する（設計 §3.2）。
+ * **例外を投げない。** getPrintfulOrder と同じ判別共用体スタイル。
+ */
+export async function getPrintfulWebhooks(): Promise<PrintfulWebhookLookup> {
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}/webhooks`, {
+      headers: { Authorization: AUTH },
+      signal: AbortSignal.timeout(PRINTFUL_FETCH_TIMEOUT_MS),
+    })
+  } catch (err) {
+    const name = err instanceof Error ? err.name : ""
+    const message = err instanceof Error ? err.message : String(err)
+    return { kind: "error", message: name === "TimeoutError" ? "timeout" : `network: ${message}` }
+  }
+
+  // P6 未確認: 404 も「未登録」として扱う（設計 §9）。
+  if (res.status === 404) return { kind: "none" }
+  if (res.status === 401 || res.status === 403) return { kind: "unauthorized", httpStatus: res.status }
+  if (!res.ok) return { kind: "error", message: `HTTP ${res.status}` }
+
+  let body: { result?: RawWebhookResult }
+  try {
+    body = (await res.json()) as { result?: RawWebhookResult }
+  } catch {
+    return { kind: "error", message: "invalid JSON" }
+  }
+  if (isEmptyWebhookResult(body.result)) return { kind: "none" }
+  const result = body.result as { url: string; types?: unknown }
+  const types = Array.isArray(result.types) ? result.types.filter((t): t is string => typeof t === "string") : []
+  return { kind: "found", config: { url: result.url, types } }
+}
+
+export type PrintfulWebhookRegisterResult =
+  | { kind: "registered" }
+  | { kind: "unauthorized"; httpStatus: number }
+  | { kind: "error"; message: string }
+
+/**
+ * webhook のURLとイベント種類を丸ごと置き換える（設計 §3.2・P1）。
+ * **全置き換え。** 呼ぶ前に「本当に変える必要があるか」は decideWebhookSync（呼び出し側）で判定すること。
+ */
+export async function replacePrintfulWebhooks(
+  url: string,
+  types: readonly string[]
+): Promise<PrintfulWebhookRegisterResult> {
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}/webhooks`, {
+      method: "POST",
+      headers: { Authorization: AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ url, types }),
+      signal: AbortSignal.timeout(PRINTFUL_FETCH_TIMEOUT_MS),
+    })
+  } catch (err) {
+    const name = err instanceof Error ? err.name : ""
+    const message = err instanceof Error ? err.message : String(err)
+    return { kind: "error", message: name === "TimeoutError" ? "timeout" : `network: ${message}` }
+  }
+  if (res.status === 401 || res.status === 403) return { kind: "unauthorized", httpStatus: res.status }
+  if (!res.ok) return { kind: "error", message: `HTTP ${res.status}` }
+  return { kind: "registered" }
+}
+
+/**
+ * 候補URLが本当にこのアプリの webhook route に届くかを確かめる（設計 §3.3）。
+ * secret を付けずに POST する — route.ts:92-94 の分岐に必ず入るため、正しい
+ * URLなら secret の正誤に関わらず 401 が返る。00-START-HERE.md:645-646 で
+ * 運用者向けに文書化されている確認手順と同じもの。
+ *
+ * ボディの `error: "Unauthorized"` まで見るのは、401 を返すだけの別物
+ * （将来 Vercel Deployment Protection が有効化された場合の認証ページ等）を
+ * 「届いている」と誤判定しないため（設計 §5 リスク欄）。
+ *
+ * 🔴 route.ts:94 のレスポンス形を変えたら、ここも見直すこと。
+ */
+export async function probeWebhookUrlIsReachable(candidateUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(candidateUrl, {
+      method: "POST",
+      signal: AbortSignal.timeout(PRINTFUL_WEBHOOK_PROBE_TIMEOUT_MS),
+    })
+    if (res.status !== 401) return false
+    const body = await res.json().catch(() => null) as { error?: unknown } | null
+    return body?.error === "Unauthorized"
+  } catch {
+    return false
+  }
 }

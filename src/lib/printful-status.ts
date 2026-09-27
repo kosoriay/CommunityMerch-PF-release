@@ -27,6 +27,9 @@ export const PRINTFUL_TEXT_MAX_LENGTH = 500
 /** Printful への照会1回のタイムアウト（§5.4）。 */
 export const PRINTFUL_FETCH_TIMEOUT_MS = 10_000
 
+/** 候補URLの自己検査（自己 POST）のタイムアウト（設計 §3.3）。 */
+export const PRINTFUL_WEBHOOK_PROBE_TIMEOUT_MS = 5_000
+
 /** 定期照会1回あたりの件数上限（§5.5）。レート制限 120 req/分の半分以下。 */
 export const PRINTFUL_RECONCILE_BATCH_SIZE = 50
 
@@ -135,4 +138,57 @@ export function printfulUncheckedGuidance(checkError: string | null): string {
   return checkError
     ? `Could not confirm this order with Printful: ${checkError}. This usually clears on Printful's retry or the next daily check. If it does not, suspect an expired Printful API token.`
     : "Printful's status for this order has not been checked for a while. Make sure the daily check (00:00 UTC) is running."
+}
+
+/**
+ * Printful webhook で有効化すべき9種類（設計 2026-09-22 §3.1）。
+ * route.ts の STATUS_EVENTS（状態系6種）+ 個別処理される3種類
+ * （package_shipped / order_refunded / package_returned）。
+ * ここを変更したら route.ts 側の STATUS_EVENTS の導出も合わせて見直すこと
+ * （filter で除外しているだけなので通常は自動的に追従する）。
+ */
+export const PRINTFUL_WEBHOOK_EVENT_TYPES = [
+  "package_shipped",
+  "order_refunded",
+  "package_returned",
+  "order_failed",
+  "order_canceled",
+  "order_put_hold",
+  "order_put_hold_approval",
+  "order_remove_hold",
+  "order_updated",
+] as const
+
+/**
+ * route.ts の「9 = 6 (状態系) + 3 (個別処理)」の分割が壊れていないかを検査する
+ * （レビュー指摘・設計§9のfail-closed要件）。壊れていれば理由を、壊れていなければ
+ * null を返す純粋関数。route.ts はこれをモジュール読み込み時に呼び、違反時は throw する。
+ *
+ * 2つを検査する:
+ * 1. `individuallyHandled` の全要素が `allTypes`（正本の9件）に実在するか。
+ *    実在しない要素があると、その分だけ `statusEvents` が本来より多くなり
+ *    （filter が除外し損ねる）、しかも route.ts の明示的な if 分岐が本物の
+ *    イベントを先に横取りするため、実行時にもテストにも現れず検出できない。
+ * 2. `statusEvents.size + individuallyHandled.size` が `allTypes.length` と
+ *    一致するか。typo で6種類のどれかを誤って `individuallyHandled` 側に
+ *    含めてしまうと、この和が9件を下回る。
+ */
+export function checkWebhookEventSplitInvariant(
+  allTypes: readonly string[],
+  individuallyHandled: ReadonlySet<string>,
+  statusEvents: ReadonlySet<string>
+): string | null {
+  const known = new Set(allTypes)
+  for (const eventType of individuallyHandled) {
+    if (!known.has(eventType)) {
+      return `"${eventType}" is not one of the ${allTypes.length} documented Printful webhook event types`
+    }
+  }
+  if (statusEvents.size + individuallyHandled.size !== allTypes.length) {
+    return (
+      `status events (${statusEvents.size}) + individually-handled events (${individuallyHandled.size}) ` +
+      `!== the documented total (${allTypes.length})`
+    )
+  }
+  return null
 }

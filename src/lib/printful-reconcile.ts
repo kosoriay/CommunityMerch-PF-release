@@ -17,6 +17,7 @@ import {
   PRINTFUL_RECONCILE_TIME_BUDGET_MS,
   PRINTFUL_STATUS_STALE_HOURS,
 } from "@/lib/printful-status"
+import type { WebhookSyncResult } from "@/lib/printful-webhook-sync"
 
 export const RECONCILE_AUTH_NOTE =
   "Printful rejected the status check with an authorization error — suspect an expired Printful API token."
@@ -31,6 +32,45 @@ const RECONCILE_SOURCE = "reconcile"
  */
 export function capacityWarningNote(targetCount: number, capacity: number): string {
   return `${targetCount} orders need a Printful status check, but only ${capacity} fit within ${PRINTFUL_STATUS_STALE_HOURS}h at the current batch size — some healthy orders will show as unchecked. Consider raising PRINTFUL_RECONCILE_BATCH_SIZE.`
+}
+
+/**
+ * webhook 登録確認（Task 6・registerPrintfulWebhooksIfNeeded）の結果を、要注意
+ * なものだけ人間向けの一言に変換する（設計 §3.6・§3.7）。
+ * `reconcilePrintfulStatuses` のシグネチャは変えず、cron ルート側がこの note を
+ * `alertPrintfulStatusProblems([], notes)` で独立して送るために使う（C11 の
+ * 「claims と notes が両方空なら no-op」という性質を利用し、新しい通知経路・
+ * テンプレートは増やさない）。
+ */
+const WEBHOOK_SYNC_ALERT_NOTE: Record<string, (r: Extract<WebhookSyncResult, { kind: "unauthorized" | "register_failed" }> | { error: string }) => string> = {
+  unauthorized: (r) => `Printful webhook registration could not be checked: the API token is missing the webhook scopes (View / manage store webhooks). See 00-START-HERE.md §4-3 for a scoped token that does not touch order fulfillment.`,
+  register_failed: (r) => `Printful webhook registration failed: ${"message" in r ? r.message : ""}.`,
+}
+
+/**
+ * `skipped` のうち、通知しない2種類（設計 §3.6・D7）。
+ * - env 未設定: Printful 連携そのものを使っていない環境の想定内スキップ
+ * - PRINTFUL_WEBHOOK_AUTO_REGISTER=false: フォークが独自の webhook 運用をする
+ *   ための意図的なオプトアウト（D7）であり、「問題」ではない
+ *
+ * これ以外の skipped（"could not check current registration: ..." や
+ * "candidate URL did not answer as this app's webhook route" を含む）は、
+ * この機能が本来検知すべき核心のケースなので通知する（最終レビュー指摘 —
+ * 当初の実装はここを一律で握りつぶしていた）。
+ */
+function isExpectedSkip(reason: string): boolean {
+  return reason.startsWith("missing environment variable(s):") ||
+    reason === "disabled by PRINTFUL_WEBHOOK_AUTO_REGISTER=false"
+}
+
+export function webhookSyncAlertNote(result: WebhookSyncResult | { error: string }): string | null {
+  if ("error" in result) return `Printful webhook registration check threw: ${result.error}.`
+  if (result.kind === "unauthorized") return WEBHOOK_SYNC_ALERT_NOTE.unauthorized(result)
+  if (result.kind === "register_failed") return WEBHOOK_SYNC_ALERT_NOTE.register_failed(result)
+  if (result.kind === "skipped" && !isExpectedSkip(result.reason)) {
+    return `Printful webhook registration was skipped and needs attention: ${result.reason}.`
+  }
+  return null // up_to_date / registered / skipped(env未設定・kill-switch) は通知しない（設計 §3.6・C11・D7）
 }
 
 export type ReconcileStop = "done" | "batch_limit" | "time_budget" | "rate_limited" | "unauthorized"

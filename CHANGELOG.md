@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.23.0] - 2026-09-26
+
+> ⚠️ **この機能は、Printful のトークンに webhook のスコープが無いと動きません。**
+> 動かない場合、毎日0時UTCに「確認できませんでした」というメールが1通届きます（注文の処理には影響しません）。
+> - **対処:** [developers.printful.com](https://developers.printful.com) の Tokens で、**View store webhooks** と
+>   **View and manage store webhooks** を含むトークンを作り、Vercel の `PRINTFUL_API_KEY`（Production）を差し替えて再デプロイしてください。
+>   既存のトークンの scope は、あとから足せるか確認してください。足せなければ新しく作り直します
+> - **使わない場合:** `PRINTFUL_WEBHOOK_AUTO_REGISTER=false` で無効にできます
+> - ファイルの同期（Sync fork）では Printful・Vercel の設定は変わりません
+
+### Added
+- **Printful の webhook 登録を自動化しました。** 毎日0時UTCの定期照会で `GET /webhooks` を確認し、
+  9種類のイベント・URLが揃っていなければ `POST /webhooks` で登録し直します。管理画面
+  （`/admin/dashboard`）には即時実行できる手動ボタンも追加しました。これまでは
+  Printful 側の webhook 登録変更のたびに運用者へ `curl` を1本手作業で依頼する必要が
+  ありました（`docs/2-setup/00-START-HERE.md` 4-3）
+  - `PRINTFUL_WEBHOOK_AUTO_REGISTER=false` で無効化できます（フォークが独自の webhook 運用をしている場合）
+  - 管理画面には登録内容の生のURL・secretは一切表示しません。表示するのは「ベースURL一致／不一致」と「types X/9」だけです
+
+---
+
 ## [1.22.0] - 2026-09-22
 
 > ⚠️ **既存インスタンスは手動対応が必要な項目があります。** 下の `Changed` を読んでください。

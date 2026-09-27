@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { getNeedsAttentionOrders } from "@/lib/orders"
 import { NeedsAttention } from "../_components/NeedsAttention"
+import { PrintfulWebhookCard } from "../_components/PrintfulWebhookCard"
 
 export default async function AdminDashboardPage() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -100,6 +101,8 @@ export default async function AdminDashboardPage() {
           )}
         </div>
       )}
+
+      {isAdmin && <PrintfulWebhookCard />}
 
       {/* Quick actions */}
       {isAdmin && (

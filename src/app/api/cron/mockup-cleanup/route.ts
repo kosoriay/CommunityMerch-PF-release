@@ -8,7 +8,9 @@ import { sweepOrphanedUploads } from "@/lib/orphaned-uploads"
 import { sweepExpiredOrderPII } from "@/lib/order-pii"
 import { needsRehost, referencedKeysFrom, acceptableMockupUrl } from "@/lib/r2-keys"
 import { r2PublicUrlOrNull, deleteFromR2 } from "@/lib/providers/r2"
-import { reconcilePrintfulStatuses, type ReconcileResult } from "@/lib/printful-reconcile"
+import { reconcilePrintfulStatuses, webhookSyncAlertNote, type ReconcileResult } from "@/lib/printful-reconcile"
+import { registerPrintfulWebhooksIfNeeded, type WebhookSyncResult } from "@/lib/printful-webhook-sync"
+import { alertPrintfulStatusProblems } from "@/lib/fulfillment-alerts"
 
 // 最終レビュー指摘：この route には maxDuration の指定が無かった。Printful の照会
 // （PRINTFUL_RECONCILE_TIME_BUDGET_MS = 60秒）を**どの分岐よりも先に**独立して走らせた
@@ -37,6 +39,29 @@ export async function GET(req: Request): Promise<NextResponse> {
   } catch (err) {
     console.error("[cron] Printful status reconcile failed:", err)
     printfulReconcile = { error: err instanceof Error ? err.message : String(err) }
+  }
+
+  // webhook 登録の確認（設計 2026-09-22 §3.6・D8）。printfulReconcile と同じ理由で
+  // 独立した try/catch にし、他の分岐より前に置く。DB には触れない軽い処理。
+  let printfulWebhookSync: WebhookSyncResult | { error: string }
+  try {
+    printfulWebhookSync = await registerPrintfulWebhooksIfNeeded(now)
+  } catch (err) {
+    console.error("[cron] Printful webhook sync failed:", err)
+    printfulWebhookSync = { error: err instanceof Error ? err.message : String(err) }
+  }
+
+  const webhookSyncNote = webhookSyncAlertNote(printfulWebhookSync)
+  if (webhookSyncNote) {
+    // best-effort。reconcilePrintfulStatuses の集計と同じ受信者に、追加の1通ではなく
+    // 同じ関数呼び出しで相乗りさせたいが、reconcile は既にその回のダイジェストを
+    // 送信済みのため、ここでは独立した1通になる(claims は空。C11 の no-op 性質どおり
+    // notesだけの軽いメールになる)。設計は「1通にまとめる」ことを要求しているのは
+    // reconcile 内の複数claimsについてであり、cron内の2つの独立した確認（Printful
+    // 状態照会／webhook登録確認）を1通に強制的にまとめる指示はない（設計 §3.6 の
+    // 文言は「notesに1行足す」だが、reconcile関数のシグネチャ変更を避けるため、
+    // ここでは同じ挙動を独立呼び出しで再現する — オーナー承認済み・2026-09-22）
+    await alertPrintfulStatusProblems([], [webhookSyncNote])
   }
 
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
@@ -267,5 +292,6 @@ export async function GET(req: Request): Promise<NextResponse> {
     orphanedUploadsDeleted: orphanSweep.deleted,
     ordersAnonymized: piiSweep.anonymized,
     printfulReconcile,
+    printfulWebhookSync,
   })
 }

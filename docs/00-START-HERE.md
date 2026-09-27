@@ -610,6 +610,11 @@ Stripe の仕様で、「注文の通知」と「団体の口座連携完了の�
 
 ### 4-3. Printful の Webhook を設定する
 
+> ✅ **v1.23.0 以降、この設定は毎日0時UTCの定期照会と、管理画面の「Check & register now」
+> ボタンから自動でも確認・登録し直されます。** 以下の手動手順は、自動化が使えない場合
+> （`NEXT_PUBLIC_APP_URL` や `PRINTFUL_WEBHOOK_SECRET` が未設定、または
+> `PRINTFUL_WEBHOOK_AUTO_REGISTER=false` にしている場合）のフォールバックとして残します。
+
 1. [https://www.printful.com](https://www.printful.com) にログイン
 2. **「Settings」** → **「API」** → **「Webhooks」** タブ
 3. Webhook URL: `https://（あなたのURL）.vercel.app/api/webhooks/printful?secret=（好きなランダム文字列）`
@@ -649,6 +654,9 @@ Stripe の仕様で、「注文の通知」と「団体の口座連携完了の�
 #### 画面が見つからない場合（および、既に運用中の場合）
 
 Printful の管理画面はレイアウトが変わることがあります。**確実なのは API で設定する方法**です。ターミナルで次を実行してください（`PRINTFUL_API_KEY` は発行済みのトークン）。
+
+> この `curl` は自動化された確認と同じ `GET /webhooks` を叩いているだけです。
+> 自動化が正しく動いていれば、ここで見える `types` は常に9つ揃っています。
 
 **手順1 — いまの設定を確認する（読むだけ・安全）**
 
