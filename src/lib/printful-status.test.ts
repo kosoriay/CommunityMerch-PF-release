@@ -9,6 +9,8 @@ import {
   PRINTFUL_HEALTHY_STATUSES,
   PRINTFUL_NOT_FOUND,
   PRINTFUL_TEXT_MAX_LENGTH,
+  PRINTFUL_WEBHOOK_EVENT_TYPES,
+  checkWebhookEventSplitInvariant,
 } from "./printful-status"
 
 // Printful v1 の Order.status に現れる値（設計 §1.2 P1）。enum 定義は無い。
@@ -123,5 +125,49 @@ describe("printfulUncheckedGuidance", () => {
 
   it("points at the daily check when nothing failed but nothing was checked (C2 b)", () => {
     expect(printfulUncheckedGuidance(null)).toMatch(/daily check/)
+  })
+})
+
+describe("PRINTFUL_WEBHOOK_EVENT_TYPES", () => {
+  it("has exactly the 9 documented types, none repeated (00-START-HERE.md 4-3)", () => {
+    const expected = [
+      "package_shipped", "order_refunded", "package_returned",
+      "order_failed", "order_canceled", "order_put_hold",
+      "order_put_hold_approval", "order_remove_hold", "order_updated",
+    ]
+    expect([...PRINTFUL_WEBHOOK_EVENT_TYPES].sort()).toEqual(expected.sort())
+    expect(new Set(PRINTFUL_WEBHOOK_EVENT_TYPES).size).toBe(9)
+  })
+})
+
+describe("checkWebhookEventSplitInvariant", () => {
+  const ALL = ["a", "b", "c", "d", "e"]
+
+  it("returns null when the split is exactly 9 = 6 + 3 (here: 5 = 2 + 3)", () => {
+    const individuallyHandled = new Set(["a", "b"])
+    const statusEvents = new Set(["c", "d", "e"])
+    expect(checkWebhookEventSplitInvariant(ALL, individuallyHandled, statusEvents)).toBeNull()
+  })
+
+  it("fails closed when an individually-handled entry is not one of the documented types (typo, under-exclusion)", () => {
+    // "z" ではなく "a" を除外するはずが typo で漏れた場合と同型: individuallyHandled に
+    // 正本に無い文字列が混ざると、対応する本物のイベントは filter で除外されず
+    // statusEvents が本来より多くなる。route.ts 側の明示的 if がそれを横取りするため、
+    // 実行時にもテストにも現れない — この invariant だけが検出できる。
+    const individuallyHandled = new Set(["typo-not-in-list", "b"])
+    const statusEvents = new Set(["a", "c", "d", "e"])
+    const result = checkWebhookEventSplitInvariant(ALL, individuallyHandled, statusEvents)
+    expect(result).toMatch(/typo-not-in-list/)
+    expect(result).toMatch(/not one of the 5 documented/)
+  })
+
+  it("fails closed when the counts do not add up to the documented total (over-exclusion)", () => {
+    // "e" がどちらの集合にも入らず消えてしまった場合（本来は STATUS_EVENTS 側に
+    // 残るはずが typo で個別処理側にも追加されず、単純に filter の対象から漏れた形）。
+    // 個別要素はどれも正本に実在するので存在チェックは通るが、合計が合わない。
+    const individuallyHandled = new Set(["a", "b", "c"])
+    const statusEvents = new Set(["d"])
+    const result = checkWebhookEventSplitInvariant(ALL, individuallyHandled, statusEvents)
+    expect(result).toMatch(/!== the documented total \(5\)/)
   })
 })

@@ -11,7 +11,12 @@ import { fromPrintfulExternalId } from "@/lib/printful-ids"
 import { getOrCreateConfig } from "@/lib/platform-config"
 import { alertPrintfulResolution, alertPrintfulStatusProblems, alertOrderAnomaly } from "@/lib/fulfillment-alerts"
 import { getPrintfulOrder, isPrintfulAutoConfirm, type PrintfulOrderLookup } from "@/lib/providers/printful"
-import { PRINTFUL_NOT_FOUND, reasonForObservation } from "@/lib/printful-status"
+import {
+  PRINTFUL_NOT_FOUND,
+  PRINTFUL_WEBHOOK_EVENT_TYPES,
+  checkWebhookEventSplitInvariant,
+  reasonForObservation,
+} from "@/lib/printful-status"
 
 if (!process.env.PRINTFUL_WEBHOOK_SECRET) {
   throw new Error("PRINTFUL_WEBHOOK_SECRET is required")
@@ -19,17 +24,23 @@ if (!process.env.PRINTFUL_WEBHOOK_SECRET) {
 const WEBHOOK_SECRET = process.env.PRINTFUL_WEBHOOK_SECRET
 
 /**
- * Printful の状態が変わったことを知らせるイベント（設計 §5.4）。payload の status は
- * 使わず、Printful に取り直す。登録は docs/2-setup/00-START-HERE.md 4-3。
+ * 状態系イベント（設計 §5.4）。payload の status は使わず、Printful に取り直す。
+ * 登録は docs/2-setup/00-START-HERE.md 4-3。
+ *
+ * PRINTFUL_WEBHOOK_EVENT_TYPES（9種類の正本、printful-status.ts）から、この
+ * route が別経路で個別に処理する3種類を除いた残り（設計 2026-09-22 §3.1・D4）。
+ * 正本を変更すれば、ここは自動的に追従する。
  */
-const STATUS_EVENTS = new Set([
-  "order_failed",
-  "order_canceled",
-  "order_put_hold",
-  "order_put_hold_approval",
-  "order_remove_hold",
-  "order_updated",
-])
+const INDIVIDUALLY_HANDLED_EVENTS = new Set(["package_shipped", "order_refunded", "package_returned"])
+const STATUS_EVENTS = new Set<string>(
+  PRINTFUL_WEBHOOK_EVENT_TYPES.filter((t) => !INDIVIDUALLY_HANDLED_EVENTS.has(t))
+)
+// fail-closed（レビュー指摘）: 「9 = 6 + 3」が壊れたら、黙って一部のイベントを
+// 取りこぼす前にモジュール読み込み時点で気づく。
+const eventSplitError = checkWebhookEventSplitInvariant(PRINTFUL_WEBHOOK_EVENT_TYPES, INDIVIDUALLY_HANDLED_EVENTS, STATUS_EVENTS)
+if (eventSplitError) {
+  throw new Error(`[printful-webhook] event split invariant broken: ${eventSplitError}`)
+}
 
 /** 全イベント共通の封筒（type / data.order.external_id）を検証したもの。 */
 type Envelope = { type: string; externalId: string; data: Record<string, unknown> }
