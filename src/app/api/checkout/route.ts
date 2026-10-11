@@ -10,7 +10,11 @@ import { db } from "@/lib/db/client"
 import { organizations } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { getCatalogItemsByIds } from "@/lib/catalog-db"
-import { isSellablePair, colorsFor } from "@/lib/cart-options"
+import { isSellablePair, colorsFor, parseAvailableColors } from "@/lib/cart-options"
+
+// 1行あたりの数量上限は 10。一般的なカートは数行（商品×色×サイズ）なので、
+// 50 行は正当な買い手に十分余裕があり、DB・Stripe へ流れる作業量には上限を与える。
+const MAX_CHECKOUT_LINE_ITEMS = 50
 
 type CheckoutBody = {
   campaignId: string
@@ -26,10 +30,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
   }
 
+  // `null` や配列・数値の本文は分割代入で throw し 500 になる。境界で 400 にする。
+  if (typeof body !== "object" || body === null) {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
+  }
+
   const { campaignId, orgId, items } = body
 
-  if (!items || items.length === 0) {
+  if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "Cart is empty" }, { status: 400 })
+  }
+  if (items.length > MAX_CHECKOUT_LINE_ITEMS) {
+    return NextResponse.json(
+      { error: `Too many items in the cart (maximum ${MAX_CHECKOUT_LINE_ITEMS})` },
+      { status: 400 }
+    )
   }
 
   // Validate campaign
@@ -119,7 +134,9 @@ export async function POST(request: NextRequest) {
     //    黒しか売らない団体の Red を止めるのはここだけである。落とすと
     //    故障モード (B) が検証器を通り抜けて再現する（設計 §7.5 手順4）。
     //    追加のクエリは不要 — productMap（:74）が availableColors を持っている。
-    const offered = colorsFor(catalogItem, JSON.parse(product.availableColors) as string[])
+    //    保存値が壊れていれば null → 「売る色なし」として同じ 400 で断る（fail-closed）。
+    const orgColors = parseAvailableColors(product.availableColors)
+    const offered = orgColors ? colorsFor(catalogItem, orgColors) : []
     if (!offered.includes(item.color)) {
       return NextResponse.json(
         { error: `"${item.color}" is not offered for this item — please refresh the page and choose again` },

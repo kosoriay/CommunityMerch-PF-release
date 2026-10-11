@@ -832,6 +832,55 @@ Printful にはテストモードがありません。代わりに、**プレビ
 > 🔴 **Production 側にうっかり `false` を入れないこと。** 本番が下書きで止まると、買い手は代金を
 > 払ったのに商品が発送されません。**`false` を入れるのは Preview と Development だけです。**
 
+### 4-7. 購入 API に回数制限をかける（本番運用を始める前に）
+
+購入ボタンを押すと、アプリは**ログインなしで**注文の下書きをデータベースに書きます（支払いの前です）。
+誰でも呼べる入口なので、**短時間に大量に呼ばれる**と、データベースが膨らんだり、
+団体の商品編集が妨げられたりします。Vercel の Firewall で、この入口だけに回数制限をかけます。
+**コードでは防げません**（サーバーレスでは、アプリ内の回数カウントが共有されないため）。
+
+> 🔴 **この設定は、リポジトリに入っていません。あなたの Vercel アカウントで、あなたが1回だけ行います。**
+> Fork やアップデートでは設定されず、`vercel.json` に書いても効きません。
+
+**使うもの:** Vercel CLI の**新しい版**（古い版には `firewall` コマンドがありません）。インストール不要で、
+`npx vercel@latest` と打てば、そのつど最新版が一時的に使えます。Hobby プランでも、回数制限ルールは**1つまで**作れます。
+
+**手順（ターミナルで）:**
+
+```bash
+# 1. ログイン（初回だけ。ブラウザが開きます）
+npx vercel@latest login
+
+# 2. ルールを「下書き」として作る。まず log（記録するだけ）で作る
+npx vercel@latest firewall rules add checkout-rate-limit \
+  --project <あなたのプロジェクト名> --scope <あなたのチームのスラッグ> --yes \
+  --action rate_limit \
+  --condition '{"type":"path","op":"eq","value":"/api/checkout"}' \
+  --condition '{"type":"method","op":"eq","value":"POST"}' \
+  --rate-limit-algo fixed_window --rate-limit-window 60 --rate-limit-requests 10 \
+  --rate-limit-keys ip --rate-limit-action log
+
+# 3. 下書きの内容を確認する（「Added rule checkout-rate-limit」の1件だけのはず）
+npx vercel@latest firewall diff --project <プロジェクト名> --scope <スラッグ>
+
+# 4. 本番に反映する
+npx vercel@latest firewall publish --project <プロジェクト名> --scope <スラッグ> --yes
+```
+
+`<あなたのプロジェクト名>` と `<スラッグ>` は、Vercel の画面のURL
+`vercel.com/<スラッグ>/<プロジェクト名>` の2か所です。
+
+**意味:** 同じ場所（IPアドレス）から `POST /api/checkout` が **60秒に10回**を超えると、
+`log` の間は記録されるだけで、止まりません。**記録だけで問題がないことを確かめてから**、
+`--rate-limit-action log` を `--rate-limit-action deny`（超えた分を **403** で断る）にして作り直します。
+**`rules edit` では切り替わりません**（説明文だけが変わります）。次の順で、**途中で `publish` せずに**続けて実行します:
+`rules remove checkout-rate-limit` → 上の手順 2 のコマンドを `deny` にして実行 → `firewall diff` で
+「削除1件・追加1件」だけであることを確認 → `firewall publish`。
+
+> ⚠️ **学校や会社など、1つの回線を多くの人が共有している場所**では、同じIPに見えます。
+> 10 回は、そこで通常の購入が弾かれにくい下限です。**下げないでください。**
+> 確認は Vercel の画面の **Firewall → Traffic**、または `npx vercel@latest firewall overview` で行えます。
+
 ---
 
 ## Phase 5: セットアップウィザードを完了する

@@ -122,3 +122,130 @@ export function referencedKeysFrom(
 
   return keys
 }
+
+/**
+ * こちらが書き込む接頭辞。孤児掃除はここ以外を対象にしない。
+ *
+ * `mockups/` は 2026-09-11 に追加した。**同時に参照集合へモックアップ列を入れてある** —
+ * 片方だけ入れると、生きている画像が7日後に消える。
+ * 置き場所は `orphaned-uploads.ts` から移した（ここは依存ゼロなので、モック工場に
+ * 左右されずに参照側と検知側が同じ値を使える）。
+ */
+export const SWEPT_PREFIXES = ["uploads/", "ai-designs/", "mockups/"] as const
+
+/**
+ * R2 を使うのに必要な環境変数。`getR2()`（providers/r2.ts）と `isR2Configured()`
+ * （mockup-rehost.ts）が**同じ一覧**を読む。片方だけ増えて食い違うのを防ぐ。
+ */
+export const REQUIRED_R2_ENV_VARS = [
+  "CLOUDFLARE_R2_ACCOUNT_ID",
+  "CLOUDFLARE_R2_ACCESS_KEY_ID",
+  "CLOUDFLARE_R2_SECRET_ACCESS_KEY",
+  "CLOUDFLARE_R2_BUCKET_NAME",
+  "CLOUDFLARE_R2_PUBLIC_URL",
+] as const
+
+/** 画像の Content-Type と拡張子の対応。**唯一の表**（`/api/upload` と複製が共有する）。 */
+export const EXT_BY_MIME: Readonly<Record<string, string>> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
+}
+
+/** MIME から拡張子を決められないときの値。判定できなければ安全側（未知の拡張子）。 */
+const FALLBACK_UPLOAD_EXT = "bin"
+
+/** 正規の拡張子のほかに、利用者の綴りとして受け入れる別名。 */
+const EXT_ALIASES_BY_MIME: Readonly<Record<string, readonly string[]>> = {
+  "image/jpeg": ["jpeg"],
+}
+
+/**
+ * `/api/upload` が R2 のキーに入れる拡張子。**ファイル名は信用せず、検証済みの MIME から
+ * 決める。** ファイル名の拡張子は、`[a-z0-9]{1,8}` に収まり、かつその MIME と
+ * 矛盾しないときだけ採る（`.html` を `image/png` に付けない）。ドットが無いときは
+ * `"noext".split(".").pop()` が名前全体を返すので、ここで自前で判定する。
+ */
+export function uploadExtensionFor(fileName: string, mimeType: string): string {
+  const canonical = EXT_BY_MIME[mimeType] ?? FALLBACK_UPLOAD_EXT
+  const dot = fileName.lastIndexOf(".")
+  if (dot < 0) return canonical
+
+  const candidate = fileName.slice(dot + 1).toLowerCase()
+  if (!/^[a-z0-9]{1,8}$/.test(candidate)) return canonical
+
+  const accepted = [canonical, ...(EXT_ALIASES_BY_MIME[mimeType] ?? [])]
+  return accepted.includes(candidate) ? candidate : canonical
+}
+
+/** 絶対URLの先頭 `https?://<host>/` に続く、こちらが書き込む接頭辞（ホストは問わない）。 */
+const PATH_SHAPE_PATTERN = new RegExp(
+  `(https?://[^/"\\\\\\s]+)/((?:${SWEPT_PREFIXES.map((p) => p.replace("/", "")).join("|")})/[^"\\\\]+)`,
+  "g"
+)
+
+/** パーセント符号を復号する。不正な符号は生の値のまま返す（拾わないより良い）。 */
+function decodeKey(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+/**
+ * 孤児掃除の「消さない」集合。**cron の削除リストには使わない**（それは
+ * `referencedKeysFrom` のまま）。
+ *
+ * `CLOUDFLARE_R2_PUBLIC_URL` を変えると、旧ベースで保存されたURLが現行ベースの
+ * 厳密な照合から漏れ、使用中のファイルが7日後に消える（`designs.design_file_url` は
+ * Printful へ送るので注文が止まる）。そこで、**ホストを問わず**パスが
+ * `SWEPT_PREFIXES` で始まる絶対URLのキーも足す。途中の `/a/uploads/` と、ホストの
+ * 無い相対パスは対象外。多めに拾うのは安全（消さないだけ）。`publicUrl` が null でも
+ * 走らせる — 保護は集合に足すだけなので、設定が欠けたときも倒れる向きが安全側になる。
+ *
+ * `pathOnlyCount` = 現行ベースでは説明できず、パスの形だけで拾えたキーの数。
+ * 非ゼロは「ベースが変わった形跡」。ここではログを出さない（呼び出し側の仕事）。
+ *
+ * **既知の穴（バグではなく、緩い走査の限界）:**
+ * - JSON エスケープされた `https:\/\/`（スラッシュが `\/`）は拾えない
+ * - スキームの大文字（`HTTPS://`）は拾えない
+ * - スキーム相対 `//host/uploads/...` は拾えない
+ * - 旧ベース自身がパス区間を含む場合（`https://h/media/uploads/x`）は途中一致なので拾えない
+ * - 無関係なホストの `uploads/`・`ai-designs/`・`mockups/` パスも「パスの形だけ」に数える。
+ *   警告はノイズになり得る（件数は目安）
+ */
+export function collectProtectedKeys(
+  rawValues: (string | null | undefined)[],
+  publicUrl: string | null
+): { keys: Set<string>; pathOnlyCount: number } {
+  const strictKeys = referencedKeysFrom(rawValues, publicUrl)
+  const keys = new Set(strictKeys)
+  const currentBaseKeys = new Set<string>()
+  const foreignKeys = new Set<string>()
+
+  for (const raw of rawValues) {
+    if (!raw) continue
+    for (const match of raw.matchAll(PATH_SHAPE_PATTERN)) {
+      const captured = match[2]
+      // 厳密側と同じ流儀: 生の値・trim 版・`?`/`#` を除いた版を、復号して全部入れる。
+      // 数えるのは除いた版（= キー本体）だけ。同じURLを二重に数えない
+      const stripped = captured.split(/[?#]/)[0]
+      const bare = decodeKey(stripped)
+      for (const variant of [captured, captured.trim(), stripped, stripped.trim()]) {
+        if (variant) keys.add(decodeKey(variant))
+      }
+      const isCurrentBase = publicUrl !== null && match[1] === publicUrl
+      ;(isCurrentBase ? currentBaseKeys : foreignKeys).add(bare)
+    }
+  }
+
+  // 現行ベースの照合（厳密側を含む）で説明できないものだけを数える
+  let pathOnlyCount = 0
+  for (const key of foreignKeys) {
+    if (!strictKeys.has(key) && !currentBaseKeys.has(key)) pathOnlyCount += 1
+  }
+
+  return { keys, pathOnlyCount }
+}

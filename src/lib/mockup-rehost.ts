@@ -1,5 +1,6 @@
 import "server-only"
 import { uploadToR2 } from "@/lib/providers/r2"
+import { EXT_BY_MIME, REQUIRED_R2_ENV_VARS } from "@/lib/r2-keys"
 
 /**
  * Printful のモックアップURLは `printful-upload.s3-accelerate.amazonaws.com/tmp/…`
@@ -13,21 +14,15 @@ import { uploadToR2 } from "@/lib/providers/r2"
 /** `src/app/api/upload/route.ts` の上限に揃える。 */
 export const MAX_MOCKUP_BYTES = 5 * 1024 * 1024
 
-/** 拡張子は Content-Type から決める。ここに無い型は保存しない。 */
-const EXT_BY_TYPE: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-}
+/** 共有の拡張子表（`/api/upload` と同じ）のうち、svg は複製しない。公開バケットから svg を配る経路を増やさない。 */
+const UNREHOSTABLE_TYPE = "image/svg+xml"
 
 /**
  * R2 が設定されていない開発環境では複製しない（設計 D7）。`uploadToR2` は未設定だと
  * 例外を投げるので、呼ぶ前に判定する。
  */
 export function isR2Configured(): boolean {
-  return Boolean(
-    process.env.CLOUDFLARE_R2_ACCOUNT_ID && process.env.CLOUDFLARE_R2_ACCESS_KEY_ID
-  )
+  return REQUIRED_R2_ENV_VARS.every((name) => Boolean(process.env[name]))
 }
 
 function slugifyColor(color: string): string {
@@ -72,7 +67,7 @@ export async function rehostMockup(sourceUrl: string, keyBase: string): Promise<
     }
 
     const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase()
-    const ext = EXT_BY_TYPE[contentType]
+    const ext = contentType === UNREHOSTABLE_TYPE ? undefined : EXT_BY_MIME[contentType]
     if (!ext) {
       console.warn(`[mockup-rehost] refusing content-type "${contentType}" for ${sourceUrl}`)
       return null

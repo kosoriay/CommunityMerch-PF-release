@@ -3,6 +3,7 @@ import type { CatalogItem } from "./catalog-utils"
 import {
   sizesFor, colorsFor, defaultColorFor, isSellablePair, representativeSizeFor,
   initialSelectedSizes, cartItemCount, formatOrderHeading, addedToCartMessage,
+  parseAvailableColors,
 } from "./cart-options"
 
 /** 一次資料（2026-08-19）から起こした最小のカタログ行。 */
@@ -254,5 +255,26 @@ describe("addedToCartMessage", () => {
   it("still names the size when there is only one — the buyer needs to know what arrives", () => {
     expect(addedToCartMessage({ name: "White Glossy Mug", color: "White", size: "11 oz", quantity: 2 }))
       .toBe("Added to cart: White Glossy Mug, White, 11 oz, quantity 2.")
+  })
+})
+
+describe("parseAvailableColors — fail closed on malformed stored JSON", () => {
+  it("parses a valid array of strings", () => {
+    expect(parseAvailableColors(JSON.stringify(["Black", "Red"]))).toEqual(["Black", "Red"])
+    expect(parseAvailableColors("[]")).toEqual([])
+  })
+
+  it.each([
+    ["null input", null],
+    ["undefined input", undefined],
+    ["garbage text", "not json {"],
+    ["empty string", ""],
+    ["a JSON object", '{"a":1}'],
+    ["a JSON string", '"Black"'],
+    ["a JSON null", "null"],
+    ["an array with a non-string element", '["Black", 3]'],
+    ["an array of objects", '[{"name":"Black"}]'],
+  ])("returns null for %s", (_label, raw) => {
+    expect(parseAvailableColors(raw as never)).toBeNull()
   })
 })

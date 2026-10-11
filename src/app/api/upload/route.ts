@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { headers } from "next/headers"
 import { auth } from "@/lib/auth"
 import { uploadToR2 } from "@/lib/providers/r2"
+import { uploadExtensionFor } from "@/lib/r2-keys"
 
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/svg+xml", "image/webp"]
 const MAX_SIZE_BYTES = 5 * 1024 * 1024 // 5MB
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   const bytes = await file.arrayBuffer()
   const buffer = Buffer.from(bytes)
-  const ext = file.name.split(".").pop() ?? "png"
+  const ext = uploadExtensionFor(file.name, file.type)
   const key = `uploads/${crypto.randomUUID()}.${ext}`
 
   const url = await uploadToR2(key, buffer, file.type)

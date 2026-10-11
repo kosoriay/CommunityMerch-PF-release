@@ -1,18 +1,13 @@
 import { db } from "@/lib/db/client"
 import { campaignProducts, designs, platformConfig } from "@/lib/db/schema"
 import { deleteFromR2, listR2Objects, r2PublicUrlOrNull } from "@/lib/providers/r2"
-import { referencedKeysFrom } from "@/lib/r2-keys"
+import { collectProtectedKeys, SWEPT_PREFIXES } from "@/lib/r2-keys"
+
+// 定義は r2-keys.ts（依存ゼロ）。既存の import 元を壊さないよう再エクスポートする
+export { SWEPT_PREFIXES }
 
 /** R2 の一覧から、判定に必要な項目だけを取り出した形。 */
 export type R2Object = { key: string; lastModified: Date }
-
-/**
- * こちらが書き込む接頭辞。ここ以外は掃除の対象にしない。
- *
- * `mockups/` は 2026-09-11 に追加した。**同時に `collectReferencedKeys` へ
- * モックアップ列を入れてある** — 片方だけ入れると、生きている画像が7日後に消える。
- */
-export const SWEPT_PREFIXES = ["uploads/", "ai-designs/", "mockups/"] as const
 
 /** これより新しいオブジェクトは、参照が無くても消さない。 */
 export const GRACE_MS = 7 * 24 * 60 * 60 * 1000
@@ -63,7 +58,10 @@ export function selectOrphanKeys(args: {
  * `platformConfig.logoUrl` は現状 `/api/upload` を通らないが、R2 の URL を入れる
  * ことはできるので防御的に含める。
  */
-export async function collectReferencedKeys(): Promise<Set<string>> {
+export async function collectProtectedReferences(): Promise<{
+  keys: Set<string>
+  pathOnlyCount: number
+}> {
   const publicUrl = r2PublicUrlOrNull()
 
   const designRows = await db
@@ -76,7 +74,10 @@ export async function collectReferencedKeys(): Promise<Set<string>> {
 
   const configRows = await db.select({ url: platformConfig.logoUrl }).from(platformConfig)
 
-  return referencedKeysFrom(
+  // **「消さない」集合なので、緩い照合（collectProtectedKeys）を使う。**
+  // cron の削除リストは厳密な referencedKeysFrom のまま — 取り違えると、現行バケットの
+  // キーを外部URLの参照から削除してしまう
+  return collectProtectedKeys(
     [
       ...designRows.flatMap((r) => [r.file, r.mockup]),
       ...productRows.flatMap((r) => [r.one, r.many]),
@@ -84,6 +85,11 @@ export async function collectReferencedKeys(): Promise<Set<string>> {
     ],
     publicUrl
   )
+}
+
+/** `collectProtectedReferences` の鍵だけ。 */
+export async function collectReferencedKeys(): Promise<Set<string>> {
+  return (await collectProtectedReferences()).keys
 }
 
 export type SweepResult = {
@@ -104,7 +110,13 @@ export async function sweepOrphanedUploads(
   now: Date,
   options: { dryRun?: boolean } = {}
 ): Promise<SweepResult> {
-  const referencedKeys = await collectReferencedKeys()
+  const { keys: referencedKeys, pathOnlyCount } = await collectProtectedReferences()
+  if (pathOnlyCount > 0) {
+    // ベースが変わった形跡。黙ると、旧ベースの参照で守られているだけの状態に気づけない
+    console.warn(
+      `[orphan-sweep] ${pathOnlyCount} referenced key(s) matched only by path shape, not by the current CLOUDFLARE_R2_PUBLIC_URL; the base URL may have changed (the count may also include unrelated URLs)`
+    )
+  }
 
   const objects = (
     await Promise.all(SWEPT_PREFIXES.map((prefix) => listR2Objects(prefix)))

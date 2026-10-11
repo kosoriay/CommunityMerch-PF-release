@@ -4,9 +4,12 @@ import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { auth } from "@/lib/auth"
 import { requireOrgAccess } from "@/lib/middleware/require-org-access"
-import { getCampaign, savePricingStep } from "@/lib/campaigns"
+import { formatRemovalBlockedMessage, getCampaign, savePricingStep } from "@/lib/campaigns"
 import { getCatalogItem } from "@/lib/catalog-db"
 import { defaultColorFor } from "@/lib/cart-options"
+
+// Used when the race path could not tell us which product has orders.
+const GENERIC_BLOCKED_SUBJECT = "A product"
 
 export async function savePricingAction(
   orgId: string,
@@ -73,6 +76,16 @@ export async function savePricingAction(
     ? "show_amount" as const
     : "percent_only" as const
 
-  await savePricingStep(campaignId, productList, goalAmount, deadline, amountDisplayMode)
+  const result = await savePricingStep(campaignId, productList, goalAmount, deadline, amountDisplayMode)
+  if (!result.ok) {
+    // Nothing was written. Name the products from the rows we already loaded.
+    const blocked = new Set(result.blockedProductIds)
+    const names = await Promise.all(
+      campaign.products
+        .filter((p) => blocked.has(p.id))
+        .map(async (p) => (await getCatalogItem(p.printfulVariantId))?.name ?? p.printfulVariantId)
+    )
+    return { error: formatRemovalBlockedMessage(names.length > 0 ? names : [GENERIC_BLOCKED_SUBJECT]) }
+  }
   redirect(`/dashboard/orgs/${orgId}/campaigns/${campaignId}/publish`)
 }

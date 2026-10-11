@@ -1,5 +1,5 @@
 import { db } from "@/lib/db/client"
-import { campaigns, campaignProducts, designs, organizations } from "@/lib/db/schema"
+import { campaigns, campaignProducts, designs, orderItems, organizations } from "@/lib/db/schema"
 import { and, count, desc, eq, inArray, ne } from "drizzle-orm"
 import { getActiveCodeForOrg, getPlatformFeeRate } from "@/lib/discount-codes"
 import { r2KeyFromUrl, deleteFromR2, r2PublicUrlOrNull } from "@/lib/providers/r2"
@@ -199,16 +199,53 @@ export type ProductInput = {
  *
  * upsert は campaign_products.id を保存するので、参照されている行を削除しない。
  * (A) と (B) の両方が直る。
+ *
+ * 訂正（2026-10-10）: 上の (B) の「直る」は **選択に残した行** についてだけ正しい。
+ * 選択から外した商品に order_items があると、DELETE は依然として FK 違反で保存全体を
+ * 巻き戻した（行番号も schema.ts:211 ではなく schema.ts:259）。savePricingAction は
+ * 当時 try/catch しておらず 500 になっていた。現在は削除前に order_items を引き、
+ * 該当があれば何も書かずに `{ ok: false, blockedProductIds }` を返す（部分書き込み無し）。
+ * 呼び出し側は戻り値を見ること。スキーマ（FK の onDelete）は本変更では触っていない。
  */
+export type SavePricingResult =
+  | { ok: true }
+  | { ok: false; blockedProductIds: string[] }
+
+/** Tail of the message shown when a save is refused; the product name(s) and verb go in front. */
+export const PRICING_REMOVAL_BLOCKED_MESSAGE =
+  "orders and can't be removed. Keep it selected, or close the campaign."
+
+/** "Mug has orders and can't be removed. ..." / "Mug, Tee have orders and can't be removed. ..." */
+export function formatRemovalBlockedMessage(productNames: string[]): string {
+  const verb = productNames.length === 1 ? "has" : "have"
+  return `${productNames.join(", ")} ${verb} ${PRICING_REMOVAL_BLOCKED_MESSAGE}`
+}
+
+const FOREIGN_KEY_FAILURE_MARKER = "FOREIGN KEY constraint failed"
+
+/** Pure: which of the ids about to be deleted are referenced by an order. */
+export function findDeletionBlockers(toDeleteIds: string[], idsWithOrders: string[]): string[] {
+  const ordered = new Set(idsWithOrders)
+  return toDeleteIds.filter((id) => ordered.has(id))
+}
+
+function isForeignKeyFailure(e: unknown): boolean {
+  // Drivers wrap the error, so look through the cause chain as well as the message.
+  for (let err: unknown = e; err instanceof Error; err = err.cause) {
+    if (err.message.includes(FOREIGN_KEY_FAILURE_MARKER)) return true
+  }
+  return false
+}
+
 export async function savePricingStep(
   campaignId: string,
   productList: ProductInput[],
   goalAmount: number | null,
   deadline: Date | null,
   amountDisplayMode: "percent_only" | "show_amount"
-): Promise<void> {
+): Promise<SavePricingResult> {
   const now = new Date()
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx): Promise<SavePricingResult> => {
     const existing = await tx.select().from(campaignProducts)
       .where(eq(campaignProducts.campaignId, campaignId))
 
@@ -217,7 +254,29 @@ export async function savePricingStep(
     // 1. 選択から外れた商品の行だけを消す。残る行は触らない。
     const toDelete = existing.filter((row) => !keep.has(row.printfulVariantId))
     if (toDelete.length > 0) {
-      await tx.delete(campaignProducts).where(inArray(campaignProducts.id, toDelete.map((r) => r.id)))
+      const toDeleteIds = toDelete.map((r) => r.id)
+      // A lookup failure propagates: the transaction aborts before any delete, and we
+      // never claim "has orders" without evidence. The check runs inside the transaction
+      // and the try/catch around the delete backstops the gap between select and delete.
+      const lookupBlockers = async () => {
+        const withOrders = await tx.select({ id: orderItems.campaignProductId }).from(orderItems)
+          .where(inArray(orderItems.campaignProductId, toDeleteIds))
+        return findDeletionBlockers(toDeleteIds, withOrders.map((r) => r.id))
+      }
+      const blocked = await lookupBlockers()
+      if (blocked.length > 0) return { ok: false, blockedProductIds: blocked }
+
+      try {
+        await tx.delete(campaignProducts).where(inArray(campaignProducts.id, toDeleteIds))
+      } catch (e) {
+        // Only the delete is mapped; an FK failure from any other statement is a real error.
+        if (!isForeignKeyFailure(e)) throw e
+        // An order arrived between the check and the delete. The failed statement wrote
+        // nothing, so returning here leaves the database untouched. Re-query so we name only
+        // products that really have orders; if that fails, report generically (empty list).
+        const raced = await lookupBlockers().catch(() => [] as string[])
+        return { ok: false, blockedProductIds: raced }
+      }
     }
 
     const byVariant = new Map(existing.map((r) => [r.printfulVariantId, r]))
@@ -267,6 +326,8 @@ export async function savePricingStep(
     await tx.update(campaigns)
       .set({ goalAmount, deadline, amountDisplayMode, updatedAt: now })
       .where(eq(campaigns.id, campaignId))
+
+    return { ok: true }
   })
 }
 
