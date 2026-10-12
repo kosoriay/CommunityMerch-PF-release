@@ -22,6 +22,24 @@ export function colorsFor(item: CatalogItem | undefined, chosenColors: string[])
   return chosenColors.filter((name) => sellable.has(name))
 }
 
+/**
+ * 団体の保存済み `availableColors`（JSON 文字列）を読む。
+ * fail-closed: 壊れた JSON・配列でない・文字列以外の要素を含む、のいずれも
+ * `null` を返す。呼び出し側は null を「売れる色なし」として断る（500 にしない）。
+ */
+export function parseAvailableColors(raw: string | null | undefined): string[] | null {
+  if (typeof raw !== "string") return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!Array.isArray(parsed)) return null
+  if (!parsed.every((c) => typeof c === "string")) return null
+  return parsed
+}
+
 /** 既定色。`"White"` リテラルの置き換え先（設計 §3.2）。 */
 export function defaultColorFor(item: CatalogItem | undefined): string | null {
   return item?.availableColors[0]?.name ?? null

@@ -4,6 +4,7 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3"
+import { REQUIRED_R2_ENV_VARS } from "@/lib/r2-keys"
 
 // Lazy initialization — env vars read at call time, not module load time
 // (Turbopack compiles modules before runtime env vars are available)
@@ -11,24 +12,27 @@ let _r2: S3Client | null = null
 let _bucket: string | null = null
 let _publicUrl: string | null = null
 
+function requiredEnv(name: (typeof REQUIRED_R2_ENV_VARS)[number]): string {
+  const value = process.env[name]
+  if (!value) throw new Error(`${name} is required`)
+  return value
+}
+
 function getR2() {
   if (!_r2) {
-    if (!process.env.CLOUDFLARE_R2_ACCOUNT_ID) throw new Error("CLOUDFLARE_R2_ACCOUNT_ID is required")
-    if (!process.env.CLOUDFLARE_R2_ACCESS_KEY_ID) throw new Error("CLOUDFLARE_R2_ACCESS_KEY_ID is required")
-    if (!process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY) throw new Error("CLOUDFLARE_R2_SECRET_ACCESS_KEY is required")
-    if (!process.env.CLOUDFLARE_R2_BUCKET_NAME) throw new Error("CLOUDFLARE_R2_BUCKET_NAME is required")
-    if (!process.env.CLOUDFLARE_R2_PUBLIC_URL) throw new Error("CLOUDFLARE_R2_PUBLIC_URL is required")
+    // 一覧の全部を先に確かめる（どれか欠けたら最初の1つの名前で投げる）
+    for (const name of REQUIRED_R2_ENV_VARS) requiredEnv(name)
 
     _r2 = new S3Client({
       region: "auto",
-      endpoint: `https://${process.env.CLOUDFLARE_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      endpoint: `https://${requiredEnv("CLOUDFLARE_R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
       credentials: {
-        accessKeyId: process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
-        secretAccessKey: process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+        accessKeyId: requiredEnv("CLOUDFLARE_R2_ACCESS_KEY_ID"),
+        secretAccessKey: requiredEnv("CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
       },
     })
-    _bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME
-    _publicUrl = process.env.CLOUDFLARE_R2_PUBLIC_URL.replace(/\/$/, "")
+    _bucket = requiredEnv("CLOUDFLARE_R2_BUCKET_NAME")
+    _publicUrl = requiredEnv("CLOUDFLARE_R2_PUBLIC_URL").replace(/\/$/, "")
   }
   return { r2: _r2, bucket: _bucket!, publicUrl: _publicUrl! }
 }
@@ -52,6 +56,12 @@ export async function uploadToR2(
  * Convert a public R2 URL back to its object key.
  * Returns null for anything not hosted in this bucket — a design URL pointing
  * elsewhere must never be turned into a delete against our own bucket.
+ *
+ * **Deliberately STRICT (do not loosen to "path starts with uploads/").** Dev writes
+ * relative paths like `/uploads/<uuid>.png` when R2 is unset (api/ai-design/route.ts);
+ * matching by path shape would turn those into deletes of real bucket objects
+ * (see campaigns.ts). The protective side (orphan sweep) is loosened separately in
+ * `collectProtectedKeys`.
  */
 export function r2KeyFromUrl(url: string | null | undefined): string | null {
   if (!url) return null

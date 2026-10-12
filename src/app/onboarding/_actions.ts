@@ -99,11 +99,13 @@ export async function completeOnboardingAction(
       const goal = goalStr && parseFloat(goalStr) > 0 ? Math.round(parseFloat(goalStr) * 100) : null
       const deadlineStr = (formData.get("deadline") as string | null) ?? ""
       const deadline = deadlineStr ? new Date(deadlineStr) : null
-      await savePricingStep(
+      const saved = await savePricingStep(
         campaign.id, productList, goal,
         deadline && deadline > new Date() ? deadline : null,
         "percent_only"
       )
+      // Cannot happen today: the campaign is brand new, so nothing is being removed.
+      if (!saved.ok) throw new Error("savePricingStep refused a removal on a new campaign")
     }
   }
 
